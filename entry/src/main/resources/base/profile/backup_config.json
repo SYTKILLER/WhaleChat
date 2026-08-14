@@ -1,0 +1,7 @@
+{
+  "allowToBackupRestore": true,
+  "includes": [
+    "data/storage/el2/base/preferences/"
+  ],
+  "excludes": []
+}

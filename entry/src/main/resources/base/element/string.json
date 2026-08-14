@@ -1,0 +1,28 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "鲸语 - AI 智能对话助手"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "鲸语 主程序"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "鲸语"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "用于调用 AI 对话服务。"
+    },
+    {
+      "name": "vibrate_permission_reason",
+      "value": "用于点击按钮时的触觉反馈。"
+    },
+    {
+      "name": "distributed_sync_reason",
+      "value": "用于跨设备同步对话记录和设置。"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Users/sytki/Documents/WhaleChat/DebugCertificate/WhaleChatDebug.p12",
+          "storePassword": "000000191BBA81B8348884EADADF332777FF57C16BDF979D5B8702ED377231F6B6BB3CCE231D2743A2",
+          "keyAlias": "debug",
+          "keyPassword": "0000001930C5A6D30B5E17D2F6517E91308951126DDB095BD60FE34E384C90827E8CA4817091139EA2",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Users/sytki/Documents/WhaleChat/DebugCertificate/WhaleChatDebugDebug.p7b",
+          "certpath": "C:/Users/sytki/Documents/WhaleChat/DebugCertificate/WhaleChatDebug.cer"
+        }
+      },
+      {
+        "name": "release",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Users/sytki/Documents/WhaleChat/ReleaseCertificate/WhaleChatRelease.p12",
+          "storePassword": "00000019A8DCC33C6DFEDE9EE5BEBF279CB58C041AB288979159D772BEF001F720C5BD28F7DE1F90F6",
+          "keyAlias": "releasekey",
+          "keyPassword": "00000019A5FDE3D9BAED76A800061F57498BCB675B35EEAA74E9DAC0B2C174E9C32106C30F05459E05",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Users/sytki/Documents/WhaleChat/ReleaseCertificate/WhaleChatReleaseRelease.p7b",
+          "certpath": "C:/Users/sytki/Documents/WhaleChat/ReleaseCertificate/WhaleChatRelease.cer"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.0(23)",
+        "compatibleSdkVersion": "6.1.0(23)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
