@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "DeepChat - AI 智能对话助手"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "DeepChat 主程序"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "DeepChat"
+    }
+  ]
+}

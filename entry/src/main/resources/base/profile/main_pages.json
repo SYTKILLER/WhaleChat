@@ -1,0 +1,14 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/ApiConfigPage",
+    "pages/ApiManagementPage",
+    "pages/MainPage",
+    "pages/ChatPage",
+    "pages/MemoryPage",
+    "pages/LoginPage",
+    "pages/ConversationListPage",
+    "pages/SettingsPage",
+    "pages/RecycleBinPage"
+  ]
+}

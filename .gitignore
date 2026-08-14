@@ -1,0 +1,24 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+
+# AI / IDE 工具产物（不进版本库）
+/.reasonix/
+/.arts/
+/.codegenie/
+/.codeartsdoer/
+reasonix.toml
+
+# 调试签名证书（仅本地，不提交）
+WhaleChatDebug.cer
+WhaleChatDebug.p12
+WhaleChatDebugDebug.p7b

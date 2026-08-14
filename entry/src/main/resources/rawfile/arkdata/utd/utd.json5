@@ -1,0 +1,18 @@
+{
+  "UniformDataTypeDeclarations": [
+    {
+      "TypeId": "com.whalechat.app.markdown-conversation",
+      "BelongingToTypes": [
+        "general.plain-text"
+      ],
+      "FilenameExtensions": [
+        ".md"
+      ],
+      "MIMETypes": [
+        "text/markdown"
+      ],
+      "Description": "鲸语对话 Markdown 文件",
+      "ReferenceURL": ""
+    }
+  ]
+}
