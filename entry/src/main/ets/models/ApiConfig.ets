@@ -3,6 +3,8 @@
  * 支持 DeepSeek、OpenAI 和自定义平台
  */
 
+import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_TOP_P } from '../common/Constants'
+
 export interface ApiProvider {
   /** 平台唯一标识 */
   id: string
@@ -76,9 +78,9 @@ export function createDefaultApiConfig(): ApiConfig {
     customBaseUrl: 'https://api.deepseek.com',
     customModel: 'deepseek-v4-flash',
     selectedModel: 'deepseek-v4-flash',
-    temperature: 0.8,
-    maxTokens: 393216,
-    topP: 1.0,
+    temperature: DEFAULT_TEMPERATURE,
+    maxTokens: DEFAULT_MAX_TOKENS,
+    topP: DEFAULT_TOP_P,
     isConfigured: false
   }
 }

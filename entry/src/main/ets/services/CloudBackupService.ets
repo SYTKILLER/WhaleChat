@@ -7,7 +7,9 @@
  */
 import { storageService } from './StorageService'
 import { common } from '@kit.AbilityKit'
+import { hilog } from '@kit.PerformanceAnalysisKit'
 
+const DOMAIN = 0x000A
 const TAG = 'CloudBackupService'
 
 /** 备份数据类型 */
@@ -67,7 +69,7 @@ class CloudBackupService {
       return
     }
     await storageService.setBoolean(KEY_BACKUP_ENABLED, enabled)
-    console.info(`[${TAG}] Cloud backup ${enabled ? 'enabled' : 'disabled'}`)
+    hilog.info(DOMAIN, TAG, 'Cloud backup %{public}s', enabled ? 'enabled' : 'disabled')
   }
 
   /**
@@ -82,7 +84,7 @@ class CloudBackupService {
       try {
         return JSON.parse(saved) as BackupDataSelection
       } catch (e) {
-        console.warn(`[${TAG}] Failed to parse backup selection, using defaults`)
+        hilog.warn(DOMAIN, TAG, 'Failed to parse backup selection, using defaults')
       }
     }
     return DEFAULT_BACKUP_SELECTION

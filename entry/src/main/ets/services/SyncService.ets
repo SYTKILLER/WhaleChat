@@ -39,17 +39,17 @@ class SyncService {
    * @returns 无需再关心合并结果，直接返回本地 JSON（调用方应重新从 RdbStore 读取）
    */
   async syncConversations(_localJson: string): Promise<string> {
-    this.doSync('CONVERSATIONS')
+    await this.doSync('CONVERSATIONS')
     return _localJson
   }
 
   async syncMemories(_localJson: string): Promise<string> {
-    this.doSync('MEMORIES')
+    await this.doSync('MEMORIES')
     return _localJson
   }
 
   async syncApiConfigs(_localJson: string): Promise<string> {
-    this.doSync('APICONFIGS')
+    await this.doSync('APICONFIGS')
     return _localJson
   }
 

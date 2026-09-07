@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ApiConfigPage — API 配置页面
  *
  * 首次启动时显示，引导用户配置 API 密钥和平台。
@@ -39,14 +39,17 @@ struct ApiConfigPage {
   @StorageLink('huaweiUnionId') huaweiUnionId: string = ''
 
   aboutToAppear(): void {
-    // 加载已有配置（如果有）
-    storageService.loadApiConfig().then((saved: ApiConfig | null) => {
-      if (saved && saved.apiKey) {
-        this.config = saved
-        this.customModelInput = saved.customModel
-        this.customBaseUrlInput = saved.customBaseUrl || 'https://api.deepseek.com'
-      }
-    })
+    this.initAndLoad()
+  }
+
+  private async initAndLoad(): Promise<void> {
+    await storageService.init(getContext(this))
+    const saved: ApiConfig | null = await storageService.loadApiConfig()
+    if (saved && saved.apiKey) {
+      this.config = saved
+      this.customModelInput = saved.customModel
+      this.customBaseUrlInput = saved.customBaseUrl || 'https://api.deepseek.com'
+    }
   }
 
   build() {
@@ -296,7 +299,7 @@ struct ApiConfigPage {
           .width('80%').height(44)
           .backgroundColor('#CF0A2C').fontColor(Color.White)
           .borderRadius(10)
-          .onClick(() => { router.pushUrl({ url: 'pages/LoginPage' }) })
+          .onClick(() => { router.pushUrl({ url: ROUTES.LOGIN }) })
       }
     }
     .alignItems(HorizontalAlign.Center)

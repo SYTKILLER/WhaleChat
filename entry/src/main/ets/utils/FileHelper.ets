@@ -5,32 +5,12 @@
  * 用于分享导出和导入流程。
  */
 import { fileIo as fs } from '@kit.CoreFileKit'
-import { fileUri } from '@kit.CoreFileKit'
 import { hilog } from '@kit.PerformanceAnalysisKit'
 import { common } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 
 const DOMAIN = 0x0004
 const TAG = 'FileHelper'
-
-/**
- * 在应用沙箱中创建 MD 文件并写入内容
- * @returns 文件 URI（用于分享或持久化）
- */
-export async function createMdFile(context: common.Context, fileName: string, content: string): Promise<string> {
-  try {
-    const safeName = sanitizeFileName(fileName)
-    const path = `${context.filesDir}/${safeName}.md`
-    const file: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
-    fs.writeSync(file.fd, content)
-    fs.closeSync(file)
-    hilog.info(DOMAIN, TAG, `MD file created: ${path}`)
-    return fileUri.getUriFromPath(path)
-  } catch (err) {
-    hilog.error(DOMAIN, TAG, `createMdFile failed: ${err}`)
-    return ''
-  }
-}
 
 /**
  * 从 URI 读取文件内容
@@ -48,7 +28,7 @@ export async function readFileFromUri(context: common.Context, uri: string): Pro
     const content = decoder.decode(new Uint8Array(buffer))
     return content
   } catch (err) {
-    hilog.error(DOMAIN, TAG, `readFileFromUri failed: ${err}`)
+    hilog.error(DOMAIN, TAG, 'readFileFromUri failed: %{public}s', JSON.stringify(err))
     return ''
   }
 }
@@ -66,7 +46,7 @@ export function deleteFile(pathOrUri: string): void {
       fs.unlinkSync(pathOrUri)
     }
   } catch (err) {
-    hilog.warn(DOMAIN, TAG, `deleteFile failed: ${err}`)
+    hilog.warn(DOMAIN, TAG, 'deleteFile failed: %{public}s', JSON.stringify(err))
   }
 }
 

@@ -51,6 +51,8 @@ interface RouteConstants {
   CONVERSATION_LIST: string
   SETTINGS: string
   RECYCLE_BIN: string
+  LOGIN: string
+  MEMORY: string
 }
 
 export const ROUTES: RouteConstants = {
@@ -61,7 +63,9 @@ export const ROUTES: RouteConstants = {
   CHAT: 'pages/ChatPage',
   CONVERSATION_LIST: 'pages/ConversationListPage',
   SETTINGS: 'pages/SettingsPage',
-  RECYCLE_BIN: 'pages/RecycleBinPage'
+  RECYCLE_BIN: 'pages/RecycleBinPage',
+  LOGIN: 'pages/LoginPage',
+  MEMORY: 'pages/MemoryPage'
 }
 
 /** 应用信息接口 */
@@ -93,3 +97,8 @@ export const THEME_COLORS: ThemeColorItem[] = [
 ]
 
 export const DEFAULT_THEME_COLOR: string = '#007DFF'
+
+/** 模型参数默认值（集中管理，避免魔法数字散落） */
+export const DEFAULT_TEMPERATURE: number = 0.8
+export const DEFAULT_MAX_TOKENS: number = 393216
+export const DEFAULT_TOP_P: number = 1.0

@@ -165,13 +165,6 @@ class DatabaseHelper {
     if (this.rdb) return
 
     try {
-      // 检测是否需要重建（旧版本使用 DISTRIBUTED_DEVICE，需升级为 DISTRIBUTED_CLOUD）
-      const needRebuild: boolean = await this.checkNeedsRebuild(context)
-      if (needRebuild) {
-        hilog.info(DOMAIN, TAG, 'Detected old DB schema, rebuilding for DISTRIBUTED_CLOUD')
-        await relationalStore.deleteRdbStore(context, DB_CONFIG.name)
-      }
-
       this.rdb = await relationalStore.getRdbStore(context, DB_CONFIG)
 
       // 建表
@@ -181,14 +174,8 @@ class DatabaseHelper {
       await this.rdb.executeSql(SQL_API_CONFIGS)
       await this.rdb.executeSql(SQL_MIGRATION)
 
-      // 增量迁移：为已有表补充 is_deleted 列（新安装表已有此列，会静默失败）
-      try {
-        await this.rdb.executeSql(
-          'ALTER TABLE CONVERSATIONS ADD COLUMN is_deleted INTEGER DEFAULT 0')
-        hilog.info(DOMAIN, TAG, 'Migration: added is_deleted column')
-      } catch (_) {
-        // 列已存在，忽略
-      }
+      // 增量迁移：按版本号补齐缺失列（绝不删库重建，避免数据丢失）
+      await this.migrateSchema()
 
       // 表结构已就绪后，标记分布式表为云端同步模式
       const distConfig: relationalStore.DistributedConfig = {
@@ -207,9 +194,6 @@ class DatabaseHelper {
         hilog.error(DOMAIN, TAG, 'setDistributedTables failed: %{public}s',
           JSON.stringify(distErr))
       }
-
-      // 记录当前 schema 版本
-      await this.setVersion()
 
       // 通知等待者数据库已就绪
       if (this.resolveReady) {
@@ -232,27 +216,39 @@ class DatabaseHelper {
   }
 
   /**
-   * 检查是否需要重建数据库（旧版本无版本号或版本号 < CURRENT_DB_VERSION）
+   * 增量迁移：按版本号补齐缺失列。
+   * 绝不 deleteRdbStore 全库重建，避免老用户数据丢失。
    */
-  private async checkNeedsRebuild(context: common.UIAbilityContext): Promise<boolean> {
+  private async migrateSchema(): Promise<void> {
+    if (!this.rdb) return
+    let version: number = 0
     try {
-      // 尝试打开现有数据库
-      const store = await relationalStore.getRdbStore(context, DB_CONFIG)
       const predicates = new relationalStore.RdbPredicates('SETTINGS')
       predicates.equalTo('key', DB_VERSION_KEY)
-      const result = await store.query(predicates)
-      let version: number = 0
+      const result = await this.rdb.query(predicates)
       if (result.goToFirstRow()) {
         const val = result.getString(result.getColumnIndex('value'))
         version = val ? parseInt(val) : 0
       }
       result.close()
-      await store.close()
-      return version < CURRENT_DB_VERSION
     } catch (err) {
-      // 数据库不存在或无法打开，不需要重建
-      return false
+      // 版本读取失败按 0 处理，走全量增量补齐
     }
+
+    // v1 → v2：新增 is_deleted 软删除列（列已存在则静默忽略）
+    if (version < 2) {
+      try {
+        await this.rdb.executeSql(
+          'ALTER TABLE CONVERSATIONS ADD COLUMN is_deleted INTEGER DEFAULT 0')
+        hilog.info(DOMAIN, TAG, 'Migration: added is_deleted column')
+      } catch (_) {
+        // 列已存在，忽略
+      }
+    }
+
+    // （预留）v2 → v3：暂无新列
+
+    await this.setVersion()
   }
 
   /**

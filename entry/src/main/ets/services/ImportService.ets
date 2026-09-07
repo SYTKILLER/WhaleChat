@@ -22,7 +22,7 @@ export const IMPORT_TRIGGER_KEY = 'whalechat_import_trigger'
  */
 export function setPendingImportUri(uri: string): void {
   if (!uri) return
-  hilog.info(DOMAIN, TAG, `Pending import URI: ${uri}`)
+  hilog.info(DOMAIN, TAG, 'Pending import URI: %{public}s', uri)
   AppStorage.setOrCreate(IMPORT_TRIGGER_KEY, uri)
 }
 
@@ -56,7 +56,7 @@ export async function tryImportFromUri(context: common.Context, uri: string): Pr
       if (!isDuplicate) {
         const updated: Conversation[] = [conv].concat(existing)
         await storageService.saveConversations(updated)
-        hilog.info(DOMAIN, TAG, `Imported 1 conversation: ${conv.title}`)
+        hilog.info(DOMAIN, TAG, 'Imported 1 conversation: %{public}s', conv.title)
         return [conv]
       }
       return []
@@ -80,10 +80,10 @@ export async function tryImportFromUri(context: common.Context, uri: string): Pr
 
     const merged: Conversation[] = result.concat(existing)
     await storageService.saveConversations(merged)
-    hilog.info(DOMAIN, TAG, `Imported ${result.length} conversations`)
+    hilog.info(DOMAIN, TAG, 'Imported %{public}d conversations', result.length)
     return result
   } catch (err) {
-    hilog.error(DOMAIN, TAG, `Import failed: ${err}`)
+    hilog.error(DOMAIN, TAG, 'Import failed: %{public}s', JSON.stringify(err))
     return []
   }
 }
