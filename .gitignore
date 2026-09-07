@@ -16,7 +16,12 @@
 /.arts/
 /.codegenie/
 /.codeartsdoer/
+/archify/
 reasonix.toml
+
+# 系统临时文件
+.DS_Store
+Thumbs.db
 
 # 调试签名证书（仅本地，不提交）
 WhaleChatDebug.cer
