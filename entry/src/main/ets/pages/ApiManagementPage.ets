@@ -27,7 +27,12 @@ struct ApiManagementPage {
     this.loadConfigs()
   }
 
+  aboutToDisappear(): void {
+    this.inputDialogController = null
+  }
+
   async loadConfigs(): Promise<void> {
+    await storageService.init(getContext(this))
     const data = await storageService.loadApiConfigs() as ManagedApiConfig[]
     this.configs = data
     // 为 DeepSeek 配置拉取余额
@@ -81,7 +86,7 @@ struct ApiManagementPage {
       alignment: DialogAlignment.Center,
       customStyle: true
     })
-    this.inputDialogController.open()
+    this.inputDialogController?.open()
   }
 
   /**
@@ -124,7 +129,7 @@ struct ApiManagementPage {
       alignment: DialogAlignment.Center,
       customStyle: true
     })
-    this.inputDialogController.open()
+    this.inputDialogController?.open()
   }
 
   // ——— 编辑弹窗 ———
@@ -148,7 +153,7 @@ struct ApiManagementPage {
       alignment: DialogAlignment.Center,
       customStyle: true
     })
-    this.inputDialogController.open()
+    this.inputDialogController?.open()
   }
 
   // ——— 删除 ———
@@ -365,7 +370,7 @@ struct ApiManagementPage {
 // ——— 输入 BaseURL & 密钥弹窗 ———
 @CustomDialog
 struct ApiInputDialog {
-  controller: CustomDialogController = new CustomDialogController({ builder: ApiInputDialog() })
+  controller?: CustomDialogController
   @StorageLink('currentColorMode') currentColorMode: number = 0
   defaultBaseUrl: string = ''
   onSave?: (name: string, baseUrl: string, apiKey: string) => void = undefined
@@ -431,7 +436,7 @@ struct ApiInputDialog {
           .layoutWeight(1)
           .backgroundColor($r('app.color.bg_input'))
           .fontColor(this.currentColorMode === 1 ? '#333333' : '#E0E0E0')
-          .onClick(() => this.controller.close())
+          .onClick(() => this.controller?.close())
 
         Button('保存')
           .fontSize(15)
@@ -440,7 +445,7 @@ struct ApiInputDialog {
           .fontColor('#FFFFFF')
           .onClick(() => {
             if (this.onSave) this.onSave(this.configName, this.baseUrl, this.apiKey)
-            this.controller.close()
+            this.controller?.close()
           })
       }
       .width('100%')
@@ -457,7 +462,7 @@ struct ApiInputDialog {
 // ——— 重命名弹窗 ———
 @CustomDialog
 struct RenameDialog {
-  controller: CustomDialogController = new CustomDialogController({ builder: RenameDialog() })
+  controller?: CustomDialogController
   @StorageLink('currentColorMode') currentColorMode: number = 0
   currentName: string = ''
   onConfirm?: (name: string) => void = undefined
@@ -488,7 +493,7 @@ struct RenameDialog {
           .layoutWeight(1)
           .backgroundColor($r('app.color.bg_input'))
           .fontColor(this.currentColorMode === 1 ? '#333333' : '#E0E0E0')
-          .onClick(() => this.controller.close())
+          .onClick(() => this.controller?.close())
 
         Button('确定')
           .fontSize(15)
@@ -497,7 +502,7 @@ struct RenameDialog {
           .fontColor('#FFFFFF')
           .onClick(() => {
             if (this.onConfirm) this.onConfirm(this.name)
-            this.controller.close()
+            this.controller?.close()
           })
       }
       .width('100%')
@@ -514,7 +519,7 @@ struct RenameDialog {
 // ——— 编辑 BaseURL & 密钥弹窗 ———
 @CustomDialog
 struct EditApiDialog {
-  controller: CustomDialogController = new CustomDialogController({ builder: EditApiDialog() })
+  controller?: CustomDialogController
   @StorageLink('currentColorMode') currentColorMode: number = 0
   configName: string = ''
   currentBaseUrl: string = ''
@@ -568,7 +573,7 @@ struct EditApiDialog {
           .layoutWeight(1)
           .backgroundColor($r('app.color.bg_input'))
           .fontColor(this.currentColorMode === 1 ? '#333333' : '#E0E0E0')
-          .onClick(() => this.controller.close())
+          .onClick(() => this.controller?.close())
 
         Button('保存')
           .fontSize(15)
@@ -577,7 +582,7 @@ struct EditApiDialog {
           .fontColor('#FFFFFF')
           .onClick(() => {
             if (this.onSave) this.onSave(this.baseUrl, this.apiKey)
-            this.controller.close()
+            this.controller?.close()
           })
       }
       .width('100%')

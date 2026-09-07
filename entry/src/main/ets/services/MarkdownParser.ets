@@ -225,8 +225,8 @@ export class MarkdownParser {
       const codeMatch = remaining.match(/`([^`]+)`/)
       // 加粗 **...**
       const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
-      // 斜体 *...*（但不匹配 **）
-      const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/)
+      // 斜体 *...*（但不匹配 **）；避免 lookbehind，改用前导字符捕获 + 负向前瞻
+      const italicMatch = remaining.match(/(^|[^*])\*([^*]+?)\*(?!\*)/)
 
       // 找到最早出现的匹配
       let earliest: InlineMatch | null = null
@@ -252,11 +252,12 @@ export class MarkdownParser {
 
       if (italicMatch && italicMatch.index !== undefined &&
         (earliest === null || italicMatch.index < earliest.index)) {
+        const offset: number = italicMatch[1].length
         earliest = {
           type: MarkdownTokenType.ITALIC,
-          text: italicMatch[1],
-          full: italicMatch[0],
-          index: italicMatch.index
+          text: italicMatch[2],
+          full: italicMatch[0].substring(offset),
+          index: italicMatch.index + offset
         }
       }
 

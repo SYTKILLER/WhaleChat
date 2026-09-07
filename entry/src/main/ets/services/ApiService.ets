@@ -87,6 +87,52 @@ export interface UsageStats {
   totalTokens: number
 }
 
+/** OpenAI 兼容聊天响应的显式结构（替代 Record<string, Object> 括号访问） */
+interface ChatApiMessage {
+  role?: string
+  content?: string
+  reasoning_content?: string
+}
+
+interface ChatApiDelta {
+  content?: string
+  reasoning_content?: string
+}
+
+interface ChatChoice {
+  message?: ChatApiMessage
+  delta?: ChatApiDelta
+}
+
+interface ChatUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+interface ApiErrorBody {
+  message?: string
+}
+
+interface ChatResponse {
+  choices?: ChatChoice[]
+  usage?: ChatUsage
+  error?: ApiErrorBody
+  message?: string
+}
+
+interface BalanceInfo {
+  total_balance?: string
+  currency?: string
+  granted_balance?: string
+  topped_up_balance?: string
+}
+
+interface BalanceResponse {
+  is_available?: boolean
+  balance_infos?: BalanceInfo[]
+}
+
 class ApiService {
   private stats: UsageStats = {
     requestCount: 0,
@@ -156,8 +202,8 @@ class ApiService {
 
       if (response.responseCode === 200) {
         const resultStr: string = (response.result as string) ?? '{}'
-        const result = JSON.parse(resultStr) as Record<string, Object>
-        const choices = result['choices'] as Array<Record<string, Object>>
+        const result = JSON.parse(resultStr) as ChatResponse
+        const choices: ChatChoice[] = result.choices ?? []
         const extracted: ChatResult = this.extractContent(choices)
         if (extracted.content.length > 0) {
           onChunk(extracted.content)
@@ -232,16 +278,16 @@ class ApiService {
               return
             }
             try {
-              const parsed = JSON.parse(jsonStr) as Record<string, Object>
+              const parsed = JSON.parse(jsonStr) as ChatResponse
               // 累加 token 使用量（DeepSeek 在 SSE 最后一个消息中返回 usage）
-              const usage = parsed['usage'] as Record<string, Object>
+              const usage = parsed.usage
               if (usage != undefined) {
-                this.stats.lastPromptTokens = (usage['prompt_tokens'] as number) ?? 0
-                this.stats.lastCompletionTokens = (usage['completion_tokens'] as number) ?? 0
-                const total: number = (usage['total_tokens'] as number) ?? 0
+                this.stats.lastPromptTokens = usage.prompt_tokens ?? 0
+                this.stats.lastCompletionTokens = usage.completion_tokens ?? 0
+                const total: number = usage.total_tokens ?? 0
                 this.stats.totalTokens += total
               }
-              const choices = parsed['choices'] as Array<Record<string, Object>>
+              const choices: ChatChoice[] = parsed.choices ?? []
               const delta: ChatResult = this.extractDeltaContent(choices)
               if (delta.thinkingContent.length > 0) {
                 fullThinking += delta.thinkingContent
@@ -252,7 +298,8 @@ class ApiService {
                 callbacks.onChunk(delta.content)
               }
             } catch (parseErr) {
-              // JSON 不完整时静默跳过，等待更多数据
+              // JSON 不完整时静默跳过，等待更多数据（仅 debug 级可追踪日志）
+              hilog.debug(DOMAIN, TAG, 'Incomplete SSE json, waiting for more data')
             }
           }
         }
@@ -272,8 +319,8 @@ class ApiService {
           const jsonStr: string = trimmed.substring(5).trim()
           if (jsonStr !== '[DONE]') {
             try {
-              const parsed = JSON.parse(jsonStr) as Record<string, Object>
-              const choices = parsed['choices'] as Array<Record<string, Object>>
+              const parsed = JSON.parse(jsonStr) as ChatResponse
+              const choices: ChatChoice[] = parsed.choices ?? []
               const delta: ChatResult = this.extractDeltaContent(choices)
               if (delta.thinkingContent.length > 0) {
                 fullThinking += delta.thinkingContent
@@ -281,7 +328,9 @@ class ApiService {
               if (delta.content.length > 0) {
                 fullContent += delta.content
               }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+              hilog.debug(DOMAIN, TAG, 'Incomplete SSE tail json, ignore')
+            }
           }
         }
       }
@@ -340,26 +389,26 @@ class ApiService {
   /**
    * 提取非流式响应中的 content
    */
-  private extractContent(choices: Array<Record<string, Object>>): ChatResult {
+  private extractContent(choices: ChatChoice[]): ChatResult {
     if (choices.length === 0) return { content: '', thinkingContent: '' }
     const firstChoice = choices[0]
-    const message = firstChoice['message'] as Record<string, Object>
+    const message = firstChoice.message
     if (message == undefined) return { content: '', thinkingContent: '' }
-    const content = (message['content'] as string) ?? ''
-    const thinkingContent = (message['reasoning_content'] as string) ?? ''
+    const content = message.content ?? ''
+    const thinkingContent = message.reasoning_content ?? ''
     return { content: content, thinkingContent: thinkingContent }
   }
 
   /**
    * 提取流式响应中的 delta content
    */
-  private extractDeltaContent(choices: Array<Record<string, Object>>): ChatResult {
+  private extractDeltaContent(choices: ChatChoice[]): ChatResult {
     if (choices.length === 0) return { content: '', thinkingContent: '' }
     const firstChoice = choices[0]
-    const delta = firstChoice['delta'] as Record<string, Object>
+    const delta = firstChoice.delta
     if (delta == undefined) return { content: '', thinkingContent: '' }
-    const content = (delta['content'] as string) ?? ''
-    const thinkingContent = (delta['reasoning_content'] as string) ?? ''
+    const content = delta.content ?? ''
+    const thinkingContent = delta.reasoning_content ?? ''
     return { content: content, thinkingContent: thinkingContent }
   }
 
@@ -440,15 +489,15 @@ class ApiService {
    */
   private parseErrorResponse(response: string): string {
     try {
-      const parsed = JSON.parse(response) as Record<string, Object>
-      const error = parsed['error'] as Record<string, Object>
+      const parsed = JSON.parse(response) as ChatResponse
+      const error = parsed.error
       if (error != undefined) {
-        const message = error['message'] as string
+        const message = error.message
         if (message != undefined && message.length > 0) {
           return message
         }
       }
-      const msg = parsed['message'] as string
+      const msg = parsed.message
       if (msg != undefined && msg.length > 0) {
         return msg
       }
@@ -518,15 +567,15 @@ class ApiService {
       if (response.responseCode === 200) {
         const raw: string = this.responseToString(response.result)
         hilog.info(DOMAIN, TAG, 'checkBalance response: %{public}s', raw)
-        const parsed = JSON.parse(raw) as Record<string, Object>
-        const isAvailable: boolean = (parsed['is_available'] as boolean) ?? false
-        const balanceInfos = parsed['balance_infos'] as Array<Record<string, Object>>
+        const parsed = JSON.parse(raw) as BalanceResponse
+        const isAvailable: boolean = parsed.is_available ?? false
+        const balanceInfos = parsed.balance_infos
         if (balanceInfos && balanceInfos.length > 0) {
           const info = balanceInfos[0]
-          const totalBalance: string = (info['total_balance'] as string) ?? '0.00'
-          const currency: string = (info['currency'] as string) ?? 'CNY'
-          const grantedBalance: string = (info['granted_balance'] as string) ?? '0.00'
-          const toppedUpBalance: string = (info['topped_up_balance'] as string) ?? '0.00'
+          const totalBalance: string = info.total_balance ?? '0.00'
+          const currency: string = info.currency ?? 'CNY'
+          const grantedBalance: string = info.granted_balance ?? '0.00'
+          const toppedUpBalance: string = info.topped_up_balance ?? '0.00'
           return {
             isAvailable: isAvailable,
             totalBalance: totalBalance,
@@ -627,10 +676,10 @@ class ApiService {
     const chatUrl: string = getChatCompletionsUrl(config)
     const testMsg: ApiMessage = { role: 'user', content: 'hi' }
     const messagesArr: ApiMessage[] = [testMsg]
-    const body: Record<string, Object> = {
-      'model': getEffectiveModel(config),
-      'messages': messagesArr,
-      'stream': false
+    const body: ChatRequestBody = {
+      model: getEffectiveModel(config),
+      messages: messagesArr,
+      stream: false
     }
 
     const httpRequest = http.createHttp()

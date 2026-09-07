@@ -3,6 +3,7 @@
  */
 
 import { Message, generateId } from './Message'
+import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_TOP_P } from '../common/Constants'
 
 export interface Conversation {
   /** 对话唯一标识 */
@@ -40,9 +41,9 @@ export function createConversation(model: string, title?: string): Conversation 
     updatedAt: Date.now(),
     model,
     systemPrompt: '',
-    temperature: 0.8,
-    maxTokens: 393216,
-    topP: 1.0,
+    temperature: DEFAULT_TEMPERATURE,
+    maxTokens: DEFAULT_MAX_TOKENS,
+    topP: DEFAULT_TOP_P,
     deepThinking: false
   }
 }

@@ -17,17 +17,9 @@ import { markdownParser } from '../services/MarkdownParser'
 // 示例数据
 // ================================================================
 
-const sampleUserMsg: Message = {
-  id: 'preview_user_1',
-  role: 'user',
-  content: '你好，请用 TypeScript 写一个 Hello World 函数。',
-  timestamp: Date.now()
-}
+const sampleUserMsg: Message = createMessage('user', '你好，请用 TypeScript 写一个 Hello World 函数。', 'deepseek-v4-flash')
 
-const sampleAiMsg: Message = {
-  id: 'preview_ai_1',
-  role: 'assistant',
-  content: `好的，这是一个 TypeScript 的 Hello World 函数：
+const sampleAiMsg: Message = createMessage('assistant', `好的，这是一个 TypeScript 的 Hello World 函数：
 
 \`\`\`typescript
 function greet(name: string): string {
@@ -44,10 +36,7 @@ console.log(greet("World"))
 const greet = (name: string): string => \`Hello, \${name}!\`
 \`\`\`
 
-> TypeScript 是 JavaScript 的超集，添加了静态类型系统。`,
-  timestamp: Date.now(),
-  model: 'deepseek-v4-flash'
-}
+> TypeScript 是 JavaScript 的超集，添加了静态类型系统。`, 'deepseek-v4-flash')
 
 const sampleMarkdown = `# 一级标题
 ## 二级标题
@@ -77,11 +66,15 @@ interface User {
 
 最后一段普通文本。`
 
-const sampleConfig: ApiConfig = {
-  ...createDefaultApiConfig(),
-  providerId: 'deepseek',
-  selectedModel: 'deepseek-v4-flash'
-}
+const sampleConfig: ApiConfig = createDefaultApiConfig()
+sampleConfig.providerId = 'deepseek'
+sampleConfig.selectedModel = 'deepseek-v4-flash'
+
+const sampleCustomConfig: ApiConfig = createDefaultApiConfig()
+sampleCustomConfig.customModel = 'my-custom-model'
+
+const sampleStreamingMsg: Message = createMessage('assistant', '这是一段正在输出中的文本…', 'deepseek-v4-flash')
+sampleStreamingMsg.isStreaming = true
 
 // ================================================================
 // 聊天气泡 — 用户消息
@@ -129,15 +122,7 @@ struct PreviewChatBubbleAi {
 struct PreviewChatBubbleStreaming {
   build() {
     Column() {
-      ChatBubble({
-        message: {
-          id: 'streaming_preview',
-          role: 'assistant',
-          content: '这是一段正在输出中的文本…',
-          timestamp: Date.now(),
-          isStreaming: true
-        }
-      })
+      ChatBubble({ message: sampleStreamingMsg })
     }
     .width('100%')
     .padding(16)
@@ -230,13 +215,7 @@ struct PreviewModelSelector {
 struct PreviewModelSelectorCustom {
   build() {
     Row() {
-      ModelSelector({
-        config: {
-          ...createDefaultApiConfig(),
-          providerId: 'custom',
-          customModel: 'my-custom-model'
-        }
-      })
+      ModelSelector({ config: sampleCustomConfig })
     }
     .width('100%')
     .padding(16)

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SettingsPage — 设置页面
  *
  * 主题切换、记忆管理、API 配置、导入导出入口
@@ -17,7 +17,6 @@ import { hilog } from '@kit.PerformanceAnalysisKit'
 import { picker } from '@kit.CoreFileKit'
 import { saveConversations } from '../utils/ExportHelper'
 import { tryImportFromUri } from '../services/ImportService'
-import { readFileFromUri } from '../utils/FileHelper'
 import { Conversation } from '../models/Conversation'
 import { accountService, ACCOUNT_LOGGED_IN, HUAWEI_UNION_ID } from '../services/AccountService'
 import { cloudBackupService, BackupDataSelection, DEFAULT_BACKUP_SELECTION } from '../services/CloudBackupService'
@@ -236,9 +235,10 @@ export struct SettingsPage {
     } catch (err) {
       const errStr = JSON.stringify(err)
       console.error('Login failed: ' + errStr)
-      const bizErr = err as Record<string, Object>
-      const code = bizErr['code'] as number | undefined
-      const msg = (bizErr['message'] as string) ?? errStr
+      const bizErr = err as BusinessError
+      const code: number = bizErr.code
+      let msg: string = bizErr.message
+      if (!msg) { msg = errStr }
       const displayMsg = code ? `[${code}] ${msg}` : msg
       promptAction.showToast({ message: '登录失败: ' + displayMsg, duration: 3000 })
     }
@@ -412,9 +412,11 @@ export struct SettingsPage {
    */
   private toggleSelectAll(): void {
     const allChecked: boolean = this.exportChecked.every((v: boolean) => v)
+    const next: boolean[] = new Array<boolean>(this.exportChecked.length)
     for (let i = 0; i < this.exportChecked.length; i++) {
-      this.exportChecked[i] = !allChecked
+      next[i] = !allChecked
     }
+    this.exportChecked = next
   }
 
   /**
@@ -526,7 +528,7 @@ export struct SettingsPage {
                   if (this.accountLoggedIn) {
                     this.handleLogout()
                   } else {
-                    router.pushUrl({ url: 'pages/LoginPage' })
+                    router.pushUrl({ url: ROUTES.LOGIN })
                   }
                 })
                 .borderRadius(16)
@@ -792,7 +794,7 @@ export struct SettingsPage {
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-            .onClick(() => { router.pushUrl({ url: 'pages/MemoryPage' }) })
+            .onClick(() => { router.pushUrl({ url: ROUTES.MEMORY }) })
           }
         }
         .divider({ strokeWidth: 0.5, startMargin: 16, endMargin: 16, color: this.currentColorMode === 1 ? '#E0E0E0' : '#444444' })
@@ -911,7 +913,7 @@ export struct SettingsPage {
               Checkbox()
                 .select(this.exportChecked[index])
                 .onChange((checked: boolean) => {
-                  this.exportChecked[index] = checked
+                  this.exportChecked.splice(index, 1, checked)
                 })
               Column() {
                 Text(conv.title)
@@ -1041,7 +1043,7 @@ export struct SettingsPage {
         .fontColor(Color.White)
         .onClick(() => {
           this.showAccountTip = false
-          setTimeout(() => { router.pushUrl({ url: 'pages/LoginPage' }) }, 350)
+          setTimeout(() => { router.pushUrl({ url: ROUTES.LOGIN }) }, 350)
         })
 
       Button('暂不登录')

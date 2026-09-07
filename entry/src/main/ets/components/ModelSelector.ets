@@ -1,8 +1,8 @@
-﻿/**
+/**
  * ModelSelector 组件 — 模型选择和参数设置弹出面板
  */
 
-import { ApiConfig, getProvider, PRESET_PROVIDERS, CUSTOM_PROVIDER_ID, getEffectiveModel } from '../models/ApiConfig'
+import { ApiConfig, PRESET_PROVIDERS, CUSTOM_PROVIDER_ID, getEffectiveModel } from '../models/ApiConfig'
 import { LucideIcon, LucideIcons } from './LucideIcon'
 
 @Component

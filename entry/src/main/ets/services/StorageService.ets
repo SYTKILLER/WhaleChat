@@ -10,6 +10,7 @@ import { relationalStore } from '@kit.ArkData'
 import { dbHelper } from './DatabaseHelper'
 import { Conversation } from '../models/Conversation'
 import { Memory } from '../models/Memory'
+import { Message } from '../models/Message'
 import { ApiConfig, ManagedApiConfig, createDefaultApiConfig } from '../models/ApiConfig'
 import { STORAGE_KEYS } from '../common/Constants'
 import { syncService } from './SyncService'
@@ -92,8 +93,9 @@ class StorageService {
   async saveConversations(convs: Conversation[]): Promise<void> {
     const store = this.getStore()
     if (!store) return
+    store.beginTransaction()
     try {
-      // 全量替换：删除旧数据 → 批量插入
+      // 全量替换：删除旧数据 → 批量插入（事务包裹）
       await store.executeSql('DELETE FROM CONVERSATIONS')
       for (const c of convs) {
         const lastMsg = c.messages.length > 0
@@ -124,15 +126,18 @@ class StorageService {
           hilog.info(DOMAIN, TAG, 'Saving deleted conv: id=%{public}s, is_deleted=1', c.id)
         }
       }
-      // 主动推送变更到云端
-      syncService.pushConversations().then(() => {
-        hilog.info(DOMAIN, TAG, 'Push conversations OK')
-      }).catch((err: Error) => {
-        hilog.error(DOMAIN, TAG, 'Push conversations failed: %{public}s', JSON.stringify(err))
-      })
+      store.commit()
     } catch (err) {
+      store.rollBack()
       hilog.error(DOMAIN, TAG, 'saveConversations failed: %{public}s', JSON.stringify(err))
+      return
     }
+    // 主动推送变更到云端（事务提交后）
+    syncService.pushConversations().then(() => {
+      hilog.info(DOMAIN, TAG, 'Push conversations OK')
+    }).catch((err: Error) => {
+      hilog.error(DOMAIN, TAG, 'Push conversations failed: %{public}s', JSON.stringify(err))
+    })
   }
 
   async loadConversations(): Promise<Conversation[]> {
@@ -149,7 +154,7 @@ class StorageService {
           id: result.getString(result.getColumnIndex('id'))!,
           title: result.getString(result.getColumnIndex('title')) ?? '',
           model: result.getString(result.getColumnIndex('model')) ?? '',
-          messages: msgJson ? JSON.parse(msgJson) : [],
+          messages: msgJson ? JSON.parse(msgJson) as Message[] : [],
           createdAt: result.getLong(result.getColumnIndex('created_at')),
           updatedAt: result.getLong(result.getColumnIndex('updated_at')),
           systemPrompt: result.getString(result.getColumnIndex('system_prompt')) ?? '',
@@ -185,6 +190,7 @@ class StorageService {
   async saveMemories(memories: Memory[]): Promise<void> {
     const store = this.getStore()
     if (!store) return
+    store.beginTransaction()
     try {
       await store.executeSql('DELETE FROM MEMORIES')
       for (const m of memories) {
@@ -198,11 +204,16 @@ class StorageService {
         }
         await store.insert('MEMORIES', vb)
       }
-      // 主动推送变更到云端
-      syncService.pushMemories().catch(() => {})
+      store.commit()
     } catch (err) {
+      store.rollBack()
       hilog.error(DOMAIN, TAG, 'saveMemories failed: %{public}s', JSON.stringify(err))
+      return
     }
+    // 主动推送变更到云端（事务提交后）
+    syncService.pushMemories().catch((err: Object) => {
+      hilog.error(DOMAIN, TAG, 'Push memories failed: %{public}s', JSON.stringify(err))
+    })
   }
 
   async loadMemories(): Promise<Memory[]> {
@@ -234,6 +245,7 @@ class StorageService {
   async saveApiConfigs(configs: ManagedApiConfig[]): Promise<void> {
     const store = this.getStore()
     if (!store) return
+    store.beginTransaction()
     try {
       await store.executeSql('DELETE FROM APICONFIGS')
       for (const cfg of configs) {
@@ -247,11 +259,16 @@ class StorageService {
         }
         await store.insert('APICONFIGS', vb)
       }
-      // 主动推送变更到云端
-      syncService.pushApiConfigs().catch(() => {})
+      store.commit()
     } catch (err) {
+      store.rollBack()
       hilog.error(DOMAIN, TAG, 'saveApiConfigs failed: %{public}s', JSON.stringify(err))
+      return
     }
+    // 主动推送变更到云端（事务提交后）
+    syncService.pushApiConfigs().catch((err: Object) => {
+      hilog.error(DOMAIN, TAG, 'Push API configs failed: %{public}s', JSON.stringify(err))
+    })
   }
 
   async loadApiConfigs(): Promise<ManagedApiConfig[]> {

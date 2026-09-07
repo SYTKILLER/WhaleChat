@@ -6,7 +6,9 @@
  */
 import auth from '@hw-agconnect/auth'
 import { util } from '@kit.ArkTS'
+import { hilog } from '@kit.PerformanceAnalysisKit'
 
+const DOMAIN = 0x0003
 const TAG = 'AccountService'
 
 /** AppStorage key，供 @StorageLink 绑定 */
@@ -36,16 +38,16 @@ class AccountService {
       const json: string = decoder.decodeToString(file, { stream: false })
       auth.init(context, json)
       AppStorage.setOrCreate('auth_initialized', true)
-      console.info(`[${TAG}] AGC auth initialized (lazy)`)
+      hilog.info(DOMAIN, TAG, 'AGC auth initialized (lazy)')
     } catch (err) {
-      console.warn(`[${TAG}] AGC auth init failed: ${JSON.stringify(err)}`)
+      hilog.warn(DOMAIN, TAG, 'AGC auth init failed: %{public}s', JSON.stringify(err))
     }
   }
 
   /** 退出华为账号。 */
   async logout(): Promise<void> {
     AppStorage.set(ACCOUNT_LOGGED_IN, false)
-    console.info(`[${TAG}] Logout`)
+    hilog.info(DOMAIN, TAG, 'Logout')
   }
 }
 

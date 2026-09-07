@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-08-14 · 代码规范审查修复（REVIEW_REPORT.md S/W 全量）
+
+- **`@State` 数组下标赋值不触发刷新** — `exportChecked[i] = x` 不更新 UI，改用 `splice(index, 1, x)` 或重建数组整体赋值。
+- **`memory_id` 是 SETTINGS 键，不得写入 CONVERSATIONS 的 ValuesBucket** — 迁移服务误写入不存在列 → insert 抛 SQL 异常被 catch 吞掉 → 旧对话静默丢失。
+- **`obj['field']` 括号访问违反 ArkTS 红线** — JSON 响应必须声明显式 interface 后用点号访问，禁止 `as Record<string, Object>` 解析；错误对象统一用全局 `BusinessError`。
+- **`@hw-agconnect/auth@1.0.5` 原生暴露 `init(context, json)`，无需 `@hw-agconnect/core`** — 评审 W1/W2 为误报；AGC 初始化读 rawfile/agconnect-services.json 后传 json 字符串即可。
+- **hvigor 在受限沙箱下报 ENOENT（00308003）实为 child_process 管道被阻断** — hvigorw 用 fork 启动子进程，需完整访问权限才能编译，非代码错误。
+
 ## 2026-08-01 · 问题 7 完成（API 管理页简化添加流程）
 
 - **删组件要连带删其全部引用** — 删除 `PlatformSelectDialog` 时，同步清理 `PLATFORMS`/`PlatformOption`/`platformDialogController`/`showInputDialog` 及弹窗内 `platformName`/`platformId` 参数，grep 确认零残留再编译。

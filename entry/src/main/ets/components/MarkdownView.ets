@@ -35,7 +35,7 @@ export struct MarkdownView {
         }
         .constraintSize({ maxWidth: '100%' })
         .padding({ top: 4, bottom: 4 })
-      })
+      }, (token: MarkdownToken, index: number) => index.toString())
     }
     .constraintSize({ maxWidth: '100%' })
   }
@@ -77,7 +77,7 @@ export struct MarkdownView {
         Button() {
           SymbolGlyph($r('sys.symbol.plus_square_on_square'))
             .fontSize(14)
-            .fontColor([this.currentColorMode === 1 ? '#AAAAAA' : '#AAAAAA'])
+            .fontColor(['#AAAAAA'])
         }
           .width(28)
           .height(28)
@@ -260,7 +260,7 @@ export struct MarkdownView {
       } else if (node.type === MarkdownTokenType.LINE_BREAK) {
         Span('\n')
       }
-    })
+    }, (node: InlineNode, idx: number) => idx.toString())
   }
 
   private copyCode(code: string): void {

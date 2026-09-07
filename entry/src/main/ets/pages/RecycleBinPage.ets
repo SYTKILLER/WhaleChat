@@ -7,7 +7,6 @@
 import { router } from '@kit.ArkUI'
 import { Conversation } from '../models/Conversation'
 import { storageService } from '../services/StorageService'
-import { syncService } from '../services/SyncService'
 import { formatTimestamp, truncateText } from '../common/Utils'
 import { ROUTES } from '../common/Constants'
 import { hilog } from '@kit.PerformanceAnalysisKit'

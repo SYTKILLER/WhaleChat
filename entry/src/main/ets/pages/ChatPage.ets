@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ChatPage — 对话页面
  *
  * 核心聊天界面，支持：
@@ -24,6 +24,11 @@ import { hilog } from '@kit.PerformanceAnalysisKit'
 
 const DOMAIN = 0x0004
 const TAG = 'ChatPage'
+
+/** ChatPage 路由参数 */
+interface ChatRouteParams {
+  conversationId: string
+}
 
 @Preview({ title: '聊天页 - 浅色', width: 390, height: 844 })
 @Preview({ title: '聊天页 - 深色', width: 390, height: 844, colorMode: 'dark' })
@@ -53,9 +58,9 @@ struct ChatPage {
   private conversationId: string = ''
 
   aboutToAppear(): void {
-    const params = router.getParams() as Record<string, string>
-    if (params && params['conversationId']) {
-      this.conversationId = params['conversationId']
+    const params = router.getParams() as ChatRouteParams
+    if (params && params.conversationId) {
+      this.conversationId = params.conversationId
     }
     this.initPage()
   }

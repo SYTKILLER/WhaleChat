@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MigrationService — Preferences → Cloud Kit RdbStore 数据迁移
  *
  * 在首次启动（或升级后）将旧 Preferences 数据迁移到 RdbStore，
@@ -78,7 +78,6 @@ class MigrationService {
               'preview': preview,
               'date': date,
               'messages': JSON.stringify(c.messages),
-              'memory_id': '',
               'created_at': c.createdAt,
               'updated_at': c.updatedAt
             }
@@ -89,7 +88,7 @@ class MigrationService {
           hilog.info(DOMAIN, TAG, 'Migrated %{public}d conversations', conversations.length)
         }
       } catch (err) {
-        hilog.warn(DOMAIN, TAG, 'Skip conversations migration: %{public}s', JSON.stringify(err))
+        hilog.error(DOMAIN, TAG, 'Skip conversations migration: %{public}s', JSON.stringify(err))
       }
 
       // ── 2. 记忆 ──

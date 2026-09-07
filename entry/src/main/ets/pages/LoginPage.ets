@@ -135,8 +135,10 @@ struct LoginPage {
       hilog.error(DOMAIN, TAG, 'AGC login failed: %{public}s', errStr)
       let displayMsg = errStr
       try {
-        const obj = err as Record<string, Object>
-        displayMsg = (obj?.message as string) ?? errStr
+        const bizErr = err as BusinessError
+        let msg: string = bizErr.message
+        if (!msg) { msg = errStr }
+        displayMsg = msg
       } catch (_) {}
       promptAction.showToast({ message: '登录失败: ' + displayMsg, duration: 3000 })
     } finally {
