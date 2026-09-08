@@ -1,6 +1,12 @@
-# 鲸语 WhaleChat 🐋
+<div align="center">
+
+<img src="AppScope/resources/base/media/WhaleChatIcon.png" width="128" alt="鲸语 WhaleChat 应用图标"/>
+
+# 鲸语 WhaleChat
 
 基于 HarmonyOS 原生开发的 AI 智能对话助手，纯 ArkTS / ArkUI 实现，支持多模型接入、端云同步与永久记忆。
+
+</div>
 
 ## ✨ 功能特性
 
