@@ -57,14 +57,7 @@ entry/src/main/ets/
 
 4. 首次启动会引导进入 API 配置页，填入 DeepSeek / OpenAI 的 API Key 即可开始对话
 
-> 云同步功能需在 AGC 控制台完成 Cloud Kit 容器与数据类型配置，详见 `AGENTS.md`。
-
-## 📚 相关文档
-
-- [NOTICE.md](NOTICE.md) — 开发避坑记录（编码错误与修复经验）
-- [AGENTS.md](AGENTS.md) — AI 辅助开发项目记忆（架构约束、构建命令、规范）
-- [REVIEW_REPORT.md](REVIEW_REPORT.md) — 代码审查报告
-- [archive/](archive/) — 迭代存档与回滚说明
+> 云同步功能需在 AGC 控制台完成 Cloud Kit 容器与数据类型配置后方可使用。
 
 ## 📄 License
 

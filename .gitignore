@@ -27,3 +27,14 @@ Thumbs.db
 WhaleChatDebug.cer
 WhaleChatDebug.p12
 WhaleChatDebugDebug.p7b
+
+# 开发阶段文档与内部资料（仅本地保留，严禁上传）
+AGENTS.md
+NOTICE.md
+REVIEW_REPORT.md
+CODE_REVIEW_REPORT.md
+HARMONYOS_AGENT_CONFIG.md
+IMPORT_COMPAT_FIX_PLAN.md
+/docs/
+/archive/
+/material/
