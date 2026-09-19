@@ -9,12 +9,15 @@
  */
 
 import { router } from '@kit.ArkUI'
+import { promptAction } from '@kit.ArkUI'
+import { window } from '@kit.ArkUI'
+import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { Message, createMessage, generateId } from '../models/Message'
 import { Conversation, createConversation, generateConversationTitle } from '../models/Conversation'
-import { ApiConfig, getEffectiveModel, PRESET_PROVIDERS } from '../models/ApiConfig'
+import { ManagedApiConfig, ApiModelEntry, ChatEndpoint, resolveDisplayName } from '../models/ApiConfig'
 import { Memory } from '../models/Memory'
 import { storageService } from '../services/StorageService'
-import { apiService, ChatResult, StreamCallbacks, UsageStats } from '../services/ApiService'
+import { apiService, StreamCallbacks, UsageStats } from '../services/ApiService'
 import { ChatBubble } from '../components/ChatBubble'
 import { MessageInput } from '../components/MessageInput'
 import { LucideIcon, LucideIcons } from '../components/LucideIcon'
@@ -40,7 +43,9 @@ struct ChatPage {
   @State isLoading: boolean = false
   @State streamingContent: string = ''
   @State streamingThinking: string = ''
-  @State apiConfig: ApiConfig | null = null
+  @State activeConfig: ManagedApiConfig | null = null
+  @State activeModels: ApiModelEntry[] = []
+  @State activeModelEntry: ApiModelEntry | null = null
   @State memories: Memory[] = []
   @State deepThinking: boolean = false
   @State @Watch('onOptionsClosed') showOptions: boolean = false
@@ -56,8 +61,18 @@ struct ChatPage {
   @StorageLink('themeColor') themeColor: string = '#007DFF'
   private scroller: Scroller = new Scroller()
   private conversationId: string = ''
+  // 动态安全区（状态栏/手势条）， getLastWindow 失败时回退历史硬编码值
+  @State topSafeHeight: number = 40
+  @State bottomSafeHeight: number = 16
+  @State keyboardVisible: boolean = false
+  private mainWindow: window.Window | null = null
+  // 首屏加载的历史消息不播放入场转场，仅新消息播放
+  private initialMessageIds: Set<string> = new Set<string>()
 
   aboutToAppear(): void {
+    // 键盘避让改为整窗收缩（默认 OFFSET 只抬到输入框本身可见，卡片内控制行会被键盘遮住）
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+    this.initSafeArea()
     const params = router.getParams() as ChatRouteParams
     if (params && params.conversationId) {
       this.conversationId = params.conversationId
@@ -71,19 +86,45 @@ struct ChatPage {
 
   aboutToDisappear(): void {
     this.renameDialogController = null
+    this.mainWindow?.off('avoidAreaChange')
+    this.mainWindow = null
+  }
+
+  /**
+   * 读取系统安全区高度（状态栏/手势条），全屏布局下替代硬编码边距；
+   * 同时监听键盘弹出（RESIZE 模式下列表高度收缩，需重新贴底）
+   */
+  private initSafeArea(): void {
+    window.getLastWindow(getContext(this)).then((win: window.Window) => {
+      this.mainWindow = win
+      const sysArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM)
+      const indicatorArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR)
+      this.topSafeHeight = this.getUIContext().px2vp(sysArea.topRect.height)
+      const bottomPx = Math.max(sysArea.bottomRect.height, indicatorArea.bottomRect.height)
+      this.bottomSafeHeight = this.getUIContext().px2vp(bottomPx)
+      win.on('avoidAreaChange', (data: window.AvoidAreaOptions) => {
+        if (data.type !== window.AvoidAreaType.TYPE_KEYBOARD) {
+          return
+        }
+        this.keyboardVisible = data.area.bottomRect.height > 0
+        if (this.keyboardVisible) {
+          this.scroller.scrollEdge(Edge.Bottom)
+        }
+      })
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'Init safe area failed: %{public}s', JSON.stringify(err))
+    })
   }
 
   async initPage(): Promise<void> {
     try {
       await storageService.init(getContext(this))
 
-      // 加载 API 配置
-      this.apiConfig = await storageService.loadApiConfig()
-      if (this.apiConfig) {
-        this.localTemperature = this.apiConfig.temperature
-        this.localMaxTokens = this.apiConfig.maxTokens
-        this.localTopP = this.apiConfig.topP
-      }
+      // 加载激活 API 配置与模型（多配置体系）
+      const ctx = await storageService.loadActiveApiContext()
+      this.activeConfig = ctx.config
+      this.activeModels = ctx.models
+      this.activeModelEntry = ctx.activeModel
 
       // 加载记忆
       this.memories = await storageService.loadMemories()
@@ -94,6 +135,11 @@ struct ChatPage {
         const found = conversations.find(c => c.id === this.conversationId)
         if (found) {
           this.conversation = found
+          // 记录历史消息 id：这些气泡入场时不播放转场动画
+          this.initialMessageIds = new Set<string>()
+          for (let i = 0; i < found.messages.length; i++) {
+            this.initialMessageIds.add(found.messages[i].id)
+          }
           this.messages = [...found.messages]
           // 进入对话时默认隐藏所有深度思考内容
           for (let i = 0; i < this.messages.length; i++) {
@@ -113,7 +159,7 @@ struct ChatPage {
       }
 
       // 创建新对话
-      const model = this.apiConfig ? getEffectiveModel(this.apiConfig) : 'deepseek-v4-flash'
+      const model = this.activeModelEntry ? this.activeModelEntry.modelId : 'deepseek-v4-flash'
       this.conversation = createConversation(model)
       this.messages = []
       hilog.info(DOMAIN, TAG, 'Created new conversation')
@@ -131,77 +177,81 @@ struct ChatPage {
 
   build() {
     Column() {
-      // 顶部导航栏
-      this.TopBar()
-
-      // 消息列表
-      List({ initialIndex: this.messages.length > 0 ? this.messages.length - 1 : 0, scroller: this.scroller }) {
-        // 空状态
-        if (this.messages.length === 0 && !this.isLoading) {
-          ListItem() {
-            this.EmptyState()
-          }
-        }
-
-        // 消息列表
-        ForEach(this.messages, (msg: Message, index: number) => {
-          ListItem() {
-            ChatBubble({ message: msg })
-          }
-        }, (msg: Message) => msg.id)
-
-        // 流式输出中的临时消息
-        if (this.isLoading && (this.streamingContent || this.streamingThinking)) {
-          ListItem() {
-            ChatBubble({
-              message: {
-                id: 'streaming',
-                role: 'assistant',
-                content: this.streamingContent,
-                thinkingContent: this.streamingThinking,
-                showThinking: true,
-                timestamp: Date.now(),
-                isStreaming: true,
-                model: this.apiConfig ? getEffectiveModel(this.apiConfig) : ''
-              }
-            })
-          }
-        } else if (this.isLoading && !this.streamingContent && !this.streamingThinking) {
-          ListItem() {
-            Row() {
-              Column() {
-                Text('AI')
-                  .fontSize(11)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Color.White)
-              }
-              .width(32)
-              .height(32)
-              .borderRadius(16)
-              .backgroundColor($r('app.color.bg_avatar'))
-              .justifyContent(FlexAlign.Center)
-
-              LoadingProgress()
-                .width(16)
-                .height(16)
-                .color($r('app.color.bg_avatar'))
-                .margin({ left: 8 })
-              Blank()
+      // 整页 Stack：消息列表占满全窗，顶栏/输入浮层分别锚定上下，
+      // 内容从两者后方穿过，形成真半透明
+      Stack({ alignContent: Alignment.Bottom }) {
+        Stack({ alignContent: Alignment.Top }) {
+          List({ initialIndex: this.messages.length, scroller: this.scroller }) {
+            // 顶部占位（顶栏高度）：内容起点在顶栏下方，滚动后气泡从顶栏渐变区域穿过
+            ListItem() {
+              Column().width('100%').height(this.topSafeHeight + 56)
             }
-            .width('100%')
-            .padding({ left: 16, top: 8, bottom: 8 })
+
+            // 空状态
+            if (this.messages.length === 0 && !this.isLoading) {
+              ListItem() {
+                this.EmptyState()
+              }
+            }
+
+            // 消息列表
+            ForEach(this.messages, (msg: Message, index: number) => {
+              ListItem() {
+                ChatBubble({ message: msg, animateAppear: !this.initialMessageIds.has(msg.id) })
+              }
+            }, (msg: Message) => msg.id)
+
+            // 流式输出中的临时消息
+            if (this.isLoading && (this.streamingContent || this.streamingThinking)) {
+              ListItem() {
+                ChatBubble({
+                  message: {
+                    id: 'streaming',
+                    role: 'assistant',
+                    content: this.streamingContent,
+                    thinkingContent: this.streamingThinking,
+                    showThinking: true,
+                    timestamp: Date.now(),
+                    isStreaming: true,
+                    model: this.activeModelEntry ? this.activeModelEntry.modelId : ''
+                  }
+                })
+              }
+            } else if (this.isLoading && !this.streamingContent && !this.streamingThinking) {
+              ListItem() {
+                Row() {
+                  LoadingProgress()
+                    .width(16)
+                    .height(16)
+                    .color($r('app.color.bg_avatar'))
+                  Blank()
+                }
+                .width('100%')
+                .padding({ left: 28, top: 8, bottom: 8 })
+              }
+            }
+
+            // 底部占位（输入卡片高度）：最后一条消息停在卡片上方，滚动时消息从卡片后方穿过
+            ListItem() {
+              Column().width('100%').height(104 + this.bottomSafeHeight)
+            }
           }
+          .width('100%')
+          .height('100%')
+          .scrollBar(BarState.Auto)
+          .edgeEffect(EdgeEffect.Spring)
+          .backgroundColor(Color.Transparent)
+
+          this.TopBar()
         }
+        .width('100%')
+        .height('100%')
+
+        // 底部输入浮层（渐变淡出带 + 卡片）
+        this.InputArea()
       }
       .width('100%')
       .layoutWeight(1)
-      .scrollBar(BarState.Auto)
-      .edgeEffect(EdgeEffect.Spring)
-      .backgroundColor(Color.Transparent)
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
-
-      // 底部输入区域（毛玻璃质感）
-      this.InputArea()
     }
     .width('100%')
     .height('100%')
@@ -211,154 +261,150 @@ struct ChatPage {
   @Builder
   InputArea() {
     Column() {
-      // 顶部分隔线
-      Row().width('92%').height(0.5)
-        .backgroundColor(this.currentColorMode === 1 ? '#1A182431' : '#1AFFFFFF')
-        .margin({ top: 0 })
-
-      // 深度思考开关
-      if (this.apiConfig) {
-        Row() {
-          Text('深度思考')
-            .fontSize(13)
-            .fontColor(this.deepThinking ? this.themeColor :
-              (this.currentColorMode === 1 ? '#6B6B6B' : '#AAAAAA'))
-          Toggle({ type: ToggleType.Switch, isOn: this.deepThinking })
-            .selectedColor(this.themeColor).margin({ left: 8 })
-            .onChange((isOn: boolean) => { this.deepThinking = isOn })
-        }
-        .width('100%').height(32)
-        .padding({ left: 16, right: 16 })
-        .alignItems(VerticalAlign.Center)
+      Row() {
+        MessageInput({
+          disabled: this.isLoading,
+          deepThinking: this.deepThinking,
+          onToggleDeep: (next: boolean): void => { this.toggleDeepThinking(next) },
+          onSend: (text: string) => { this.handleSend(text) }
+        })
       }
-
-      // 输入框 + 发送按钮
-      MessageInput({
-        disabled: this.isLoading,
-        onSend: (text: string) => { this.handleSend(text) }
-      })
+      .width('100%')
+      .padding({ left: 12, right: 12 })
     }
     .width('100%')
-    // 毛玻璃背景
-    .backgroundColor(this.currentColorMode === 1 ? '#F0FFFFFF' : '#F0182431')
-    .backgroundBlurStyle(BlurStyle.Regular)
-    // 顶部圆角
-    .borderRadius({ topLeft: 20, topRight: 20 })
-    .padding({ bottom: 16 })
+    .padding({ bottom: this.keyboardVisible ? 12 : this.bottomSafeHeight })
+  }
+
+  /**
+   * 深度思考切换（animateTo 平滑过渡 chip 颜色）
+   */
+  private toggleDeepThinking(next: boolean): void {
+    this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseInOut }, () => {
+      this.deepThinking = next
+    })
   }
 
   @Builder
   TopBar() {
-    Row() {
-      // 返回按钮 — 沉浸光感材质，带阴影
-      Button() {
-        LucideIcon({
-          icon: LucideIcons.ARROW_LEFT,
-          color: this.currentColorMode === 1 ? '#333333' : '#CCCCCC',
-          iconSize: 22
-        })
-      }
-      .width(40)
-      .height(40)
-      .borderRadius(20)
-      .backgroundColor(this.currentColorMode === 1 ?
-        'rgba(250, 250, 250, 0.55)' : 'rgba(34, 34, 34, 0.55)')
-      .backgroundBlurStyle(BlurStyle.Regular)
-      .shadow({ radius: 8, color: '#18000000', offsetY: 2 })
-      .onClick(() => {
-        this.saveAndGoBack()
-      })
+    // 分层结构：模糊层/渐变层/内容层各自独立组件，避免单组件背景属性槽位互相覆盖
+    Stack() {
+      // 模糊层：纯背景模糊（BlurStyle 材质自带近实色底色，会盖住模糊内容，故不用）
+      Column()
+        .width('100%')
+        .height('100%')
+        .backdropBlur(30)
 
-      // 标题
-      Text(this.conversation.title)
-        .fontSize(19)
-        .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.text_primary'))
-        .margin({ left: 8 })
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(1)
-        .onClick(() => {
-          this.renameText = this.conversation.title
-          if (this.renameDialogController === null) {
-            this.renameDialogController = new CustomDialogController({
-              builder: RenameDialog({
-                titleText: $renameText,
-                confirm: () => { this.confirmRename() }
-              }),
-              autoCancel: true,
-              alignment: DialogAlignment.Center,
-              customStyle: false
-            })
-          }
-          this.renameDialogController?.open()
+      // 渐变着色层：压住模糊内容保证标题可读，底边保持半透明
+      Column()
+        .width('100%')
+        .height('100%')
+        .linearGradient({
+          direction: GradientDirection.Bottom,
+          colors: this.currentColorMode === 1 ?
+            [['rgba(255, 255, 255, 0.85)', 0.0], ['rgba(255, 255, 255, 0.40)', 1.0]] :
+            [['rgba(26, 26, 26, 0.85)', 0.0], ['rgba(26, 26, 26, 0.40)', 1.0]]
         })
 
-      Blank()
-
-      // 模型选择器（仅预设平台显示；custom 固定使用 customModel，隐藏切换）
-      if (this.apiConfig && this.apiConfig.providerId !== 'custom') {
-        Select(this.buildModelOptions())
-          .selected(this.apiConfig.selectedModel === 'deepseek-v4-flash' ? 0 : 1)
-          .value(this.modelShortName(this.apiConfig.selectedModel))
-          .font({ size: 13 })
-          .fontColor(this.themeColor)
-          .width(86)
-          .margin({ right: 8 })
-          .onSelect((index: number) => {
-            const config = this.apiConfig
-            if (config) {
-              const models = PRESET_PROVIDERS.find(p => p.id === config.providerId)?.defaultModels ?? []
-              if (index < models.length) {
-              config.selectedModel = models[index]
-              this.apiConfig = config
-                storageService.saveApiConfig(config)
-              }
-            }
+      Row() {
+        // 返回按钮 — 沉浸光感材质，带阴影
+        Button() {
+          LucideIcon({
+            icon: LucideIcons.ARROW_LEFT,
+            color: this.currentColorMode === 1 ? '#333333' : '#CCCCCC',
+            iconSize: 22
           })
-      }
+        }
+        .width(40)
+        .height(40)
+        .borderRadius(20)
+        .backgroundColor(this.currentColorMode === 1 ?
+          'rgba(250, 250, 250, 0.55)' : 'rgba(34, 34, 34, 0.55)')
+        .backgroundBlurStyle(BlurStyle.Regular)
+        .shadow({ radius: 8, color: '#18000000', offsetY: 2 })
+        .onClick(() => {
+          this.saveAndGoBack()
+        })
 
-      // 选项按钮 — 沉浸光感材质，带阴影
-      Button() {
-        LucideIcon({
-          icon: LucideIcons.DOT_GRID_2X2,
-          color: this.currentColorMode === 1 ? '#333333' : '#CCCCCC',
-          iconSize: 22
+        // 标题
+        Text(this.conversation.title)
+          .fontSize(19)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+          .margin({ left: 8 })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+          .onClick(() => {
+            this.renameText = this.conversation.title
+            if (this.renameDialogController === null) {
+              this.renameDialogController = new CustomDialogController({
+                builder: RenameDialog({
+                  titleText: $renameText,
+                  confirm: () => { this.confirmRename() }
+                }),
+                autoCancel: true,
+                alignment: DialogAlignment.Center,
+                customStyle: false
+              })
+            }
+            this.renameDialogController?.open()
+          })
+
+        Blank()
+
+        // 模型选择器：收起显示激活模型缩略名，展开列出激活配置下全部模型
+        if (this.activeConfig && this.activeModels.length > 0 && this.activeModelEntry) {
+          Select(this.buildModelOptions())
+            .selected(this.activeModelIndex())
+            .value(resolveDisplayName(this.activeModelEntry))
+            .font({ size: 13 })
+            .fontColor(this.themeColor)
+            .width(120)
+            .margin({ right: 8 })
+            .onSelect((index: number) => {
+              if (index >= 0 && index < this.activeModels.length) {
+                this.activeModelEntry = this.activeModels[index]
+                storageService.setActiveModelEntryId(this.activeModelEntry.id)
+              }
+            })
+        }
+
+        // 选项按钮 — 沉浸光感材质，带阴影
+        Button() {
+          LucideIcon({
+            icon: LucideIcons.DOT_GRID_2X2,
+            color: this.currentColorMode === 1 ? '#333333' : '#CCCCCC',
+            iconSize: 22
+          })
+        }
+        .width(40)
+        .height(40)
+        .borderRadius(20)
+        .backgroundColor(this.currentColorMode === 1 ?
+          'rgba(250, 250, 250, 0.55)' : 'rgba(34, 34, 34, 0.55)')
+        .backgroundBlurStyle(BlurStyle.Regular)
+        .shadow({ radius: 8, color: '#18000000', offsetY: 2 })
+        .onClick(() => {
+          this.stats = apiService.getStats()
+          this.showOptions = true
+        })
+        .bindSheet($$this.showOptions, this.OptionsSheetBuilder, {
+          detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+          showClose: true,
+          title: this.SheetTitleBuilder,
+          dragBar: true,
+          scrollSizeMode: ScrollSizeMode.CONTINUOUS,
+          backgroundColor: this.currentColorMode === 1 ? '#FFFFFF' : '#1A1A1A',
+          onDisappear: () => { this.showOptions = false; this.saveParams() }
         })
       }
-      .width(40)
-      .height(40)
-      .borderRadius(20)
-      .backgroundColor(this.currentColorMode === 1 ?
-        'rgba(250, 250, 250, 0.55)' : 'rgba(34, 34, 34, 0.55)')
-      .backgroundBlurStyle(BlurStyle.Regular)
-      .shadow({ radius: 8, color: '#18000000', offsetY: 2 })
-      .onClick(() => {
-        this.stats = apiService.getStats()
-        this.showOptions = true
-      })
-      .bindSheet($$this.showOptions, this.OptionsSheetBuilder, {
-        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
-        showClose: true,
-        title: this.SheetTitleBuilder,
-        dragBar: true,
-        scrollSizeMode: ScrollSizeMode.CONTINUOUS,
-        backgroundColor: this.currentColorMode === 1 ? '#FFFFFF' : '#1A1A1A',
-        onDisappear: () => { this.showOptions = false; this.saveParams() }
-      })
+      .width('100%')
+      .height('100%')
+      .padding({ left: 8, right: 8, top: this.topSafeHeight })
     }
     .width('100%')
-    .height(96)
-    .padding({ left: 8, right: 8, top: 40 })
-    .linearGradient({
-      direction: GradientDirection.Bottom,
-      colors: this.currentColorMode === 1 ?
-        [['rgba(250, 250, 250, 1.0)', 0.0], ['rgba(250, 250, 250, 0.3)', 1.0]] :
-        [['rgba(34, 34, 34, 1.0)', 0.0], ['rgba(34, 34, 34, 0.3)', 1.0]]
-    })
-    .backgroundBlurStyle(BlurStyle.Regular)
-    .borderWidth({ bottom: 0.5 })
-    .borderColor(this.currentColorMode === 1 ? '#E0E0E0' : '#444444')
+    .height(this.topSafeHeight + 56)
   }
 
   @Builder
@@ -613,10 +659,16 @@ struct ChatPage {
    * 发送消息
    */
   private async handleSend(text: string): Promise<void> {
-    if (!this.apiConfig || !text.trim()) return
+    if (!text.trim()) return
+    if (!this.activeConfig || !this.activeModelEntry ||
+        this.activeModelEntry.modelId.trim().length === 0) {
+      promptAction.showToast({ message: '请先在「设置 → API 平台配置」中添加 API 与模型', duration: 2000 })
+      return
+    }
+    const modelId: string = this.activeModelEntry.modelId
 
     // 添加用户消息
-    const userMsg = createMessage('user', text, getEffectiveModel(this.apiConfig))
+    const userMsg = createMessage('user', text, modelId)
     this.messages.push(userMsg)
 
     // 新对话自动生成标题
@@ -635,9 +687,19 @@ struct ChatPage {
       allMessages.push(this.messages[i])
     }
 
+    // 请求上下文：激活配置 + 激活模型 + 对话页参数
+    const endpoint: ChatEndpoint = {
+      baseUrl: this.activeConfig.baseUrl,
+      apiKey: this.activeConfig.apiKey,
+      modelId: modelId,
+      temperature: this.localTemperature,
+      maxTokens: this.localMaxTokens,
+      topP: this.localTopP
+    }
+
     // 流式发送请求
     apiService.chatStream(
-      this.apiConfig,
+      endpoint,
       allMessages,
       this.memories,
       this.deepThinking,
@@ -653,7 +715,7 @@ struct ChatPage {
         },
         onDone: (fullContent: string, thinkingContent: string) => {
           if (fullContent || thinkingContent) {
-            const aiMsg = createMessage('assistant', fullContent + '\n\n---\n内容由AI生成，仅供参考', getEffectiveModel(this.apiConfig!))
+            const aiMsg = createMessage('assistant', fullContent + '\n\n---\n内容由AI生成，仅供参考', modelId)
             aiMsg.thinkingContent = thinkingContent
             // 发送完成保持折叠（与问题4流式自动折叠衔接，用户可手动展开）
             aiMsg.showThinking = false
@@ -686,33 +748,22 @@ struct ChatPage {
     return n.toString()
   }
 
-  private modelShortName(name: string): string {
-    if (name.includes('pro') || name.includes('Pro')) return 'Pro'
-    if (name.includes('flash') || name.includes('Flash')) return 'Flash'
-    const parts = name.split('-')
-    return parts.length > 0 ? parts[parts.length - 1] : name
+  /**
+   * 激活模型在列表中的下标（找不到时回退 0）
+   */
+  private activeModelIndex(): number {
+    if (!this.activeModelEntry) return 0
+    const idx = this.activeModels.findIndex(m => m.id === this.activeModelEntry?.id)
+    return idx >= 0 ? idx : 0
   }
 
   /**
-   * 构建模型选项列表
+   * 构建模型选项列表（激活配置下全部模型，显示名缩略）
    */
   private buildModelOptions(): SelectOption[] {
-    const config: ApiConfig | null = this.apiConfig
-    if (!config) {
-      const empty: SelectOption = { value: '' }
-      return [empty]
-    }
-    // custom 平台：固定使用 customModel（防御，正常路径 Select 已隐藏）
-    if (config.providerId === 'custom') {
-      const customOpt: SelectOption = { value: config.customModel || 'deepseek-v4-flash' }
-      const customOpts: SelectOption[] = [customOpt]
-      return customOpts
-    }
-    const provider = PRESET_PROVIDERS.find(p => p.id === config.providerId)
-    const models: string[] = provider?.defaultModels ?? []
     const options: SelectOption[] = []
-    for (let i = 0; i < models.length; i++) {
-      const opt: SelectOption = { value: models[i] }
+    for (let i = 0; i < this.activeModels.length; i++) {
+      const opt: SelectOption = { value: resolveDisplayName(this.activeModels[i]) }
       options.push(opt)
     }
     return options

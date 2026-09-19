@@ -9,6 +9,11 @@ import { router } from '@kit.ArkUI'
 import { promptAction } from '@kit.ArkUI'
 import {
   ApiConfig,
+  ApiModelEntry,
+  ManagedApiConfig,
+  buildModelEntry,
+  normalizeBaseUrl,
+  detectPlatform,
   CUSTOM_PROVIDER_ID,
   createDefaultApiConfig
 } from '../models/ApiConfig'
@@ -19,6 +24,13 @@ import { hilog } from '@kit.PerformanceAnalysisKit'
 import { LucideIcon, LucideIcons } from '../components/LucideIcon'
 const DOMAIN = 0x0003
 const TAG = 'ApiConfigPage'
+
+/** 模型编辑行（id 为空表示新增行） */
+interface ModelRow {
+  id: string
+  modelId: string
+  displayName: string
+}
 
 @Preview({ title: 'API配置页 - 浅色', width: 390, height: 844 })
 @Preview({ title: 'API配置页 - 深色', width: 390, height: 844, colorMode: 'dark' })
@@ -31,6 +43,7 @@ struct ApiConfigPage {
   @State testResult: string = ''
   @State customModelInput: string = ''
   @State customBaseUrlInput: string = 'https://api.deepseek.com'
+  @State modelRows: ModelRow[] = []
   @State currentStep: number = 0 // 0-登录华为账号, 1-配置API
   @State showSkipWarning: boolean = false
   @StorageLink('currentColorMode') currentColorMode: number = 0
@@ -39,6 +52,8 @@ struct ApiConfigPage {
   @StorageLink('huaweiUnionId') huaweiUnionId: string = ''
 
   aboutToAppear(): void {
+    const first: ModelRow = { id: '', modelId: 'deepseek-v4-flash', displayName: '' }
+    this.modelRows = [first]
     this.initAndLoad()
   }
 
@@ -49,7 +64,19 @@ struct ApiConfigPage {
       this.config = saved
       this.customModelInput = saved.customModel
       this.customBaseUrlInput = saved.customBaseUrl || 'https://api.deepseek.com'
+      const restored: ModelRow = { id: '', modelId: saved.customModel || 'deepseek-v4-flash', displayName: '' }
+      this.modelRows = [restored]
     }
+  }
+
+  addModelRow(): void {
+    const row: ModelRow = { id: '', modelId: '', displayName: '' }
+    this.modelRows = [...this.modelRows, row]
+  }
+
+  removeModelRow(index: number): void {
+    if (this.modelRows.length <= 1) return
+    this.modelRows = this.modelRows.filter((r: ModelRow, i: number) => i !== index)
   }
 
   build() {
@@ -216,6 +243,50 @@ struct ApiConfigPage {
       .backgroundColor($r('app.color.bg_input'))
       .borderRadius(10)
       .margin({ bottom: 8 })
+
+      // 模型列表（模型名 + 缩略显示名，可配置多个）
+      Text('模型列表（模型名必填，显示名可留空）')
+        .fontSize(13)
+        .fontColor($r('app.color.text_subtle'))
+        .width('100%')
+        .margin({ top: 4, bottom: 6 })
+
+      ForEach(this.modelRows, (row: ModelRow, index: number) => {
+        Row({ space: 6 }) {
+          TextInput({ text: row.modelId, placeholder: '模型名，如 gpt-4o' })
+            .layoutWeight(1)
+            .height(44)
+            .fontSize(14)
+            .borderRadius(8)
+            .backgroundColor($r('app.color.bg_input'))
+            .onChange((value: string) => { this.modelRows[index].modelId = value })
+
+          TextInput({ text: row.displayName, placeholder: '显示名' })
+            .layoutWeight(1)
+            .height(44)
+            .fontSize(14)
+            .borderRadius(8)
+            .backgroundColor($r('app.color.bg_input'))
+            .onChange((value: string) => { this.modelRows[index].displayName = value })
+
+          Text('×')
+            .fontSize(20)
+            .fontColor($r('app.color.text_secondary'))
+            .width(28)
+            .textAlign(TextAlign.Center)
+            .onClick(() => { this.removeModelRow(index) })
+        }
+        .width('100%')
+        .margin({ bottom: 6 })
+      }, (row: ModelRow, index: number) => row.id + '_' + index.toString())
+
+      Text('+ 添加模型')
+        .fontSize(13)
+        .fontColor(this.themeColor)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .padding({ top: 2, bottom: 4 })
+        .onClick(() => { this.addModelRow() })
 
       // 连接测试按钮
       Button() {
@@ -412,6 +483,23 @@ struct ApiConfigPage {
    * 测试 API 连接
    */
   private async testConnection(): Promise<void> {
+    // 模型名校验：至少一个非空
+    let hasModel = false
+    for (let i = 0; i < this.modelRows.length; i++) {
+      if (this.modelRows[i].modelId.trim().length > 0) {
+        hasModel = true
+        break
+      }
+    }
+    if (!hasModel) {
+      promptAction.showToast({ message: '请至少填写一个模型名', duration: 1500 })
+      return
+    }
+    if (this.customBaseUrlInput.trim().length === 0) {
+      promptAction.showToast({ message: '请输入 API Base URL', duration: 1500 })
+      return
+    }
+
     this.testingConnection = true
     this.testResult = ''
 
@@ -419,17 +507,60 @@ struct ApiConfigPage {
     if (this.config.providerId === CUSTOM_PROVIDER_ID) {
       this.config.customBaseUrl = this.customBaseUrlInput
     }
+    this.config.customModel = this.modelRows[0].modelId.trim()
 
     const result = await apiService.testConnection(this.config)
     this.testResult = result.message
     this.testingConnection = false
 
     if (result.success && this.currentStep === 1) {
-      // 测试成功：保存配置并进入主页面
-      this.config.isConfigured = true
-      await storageService.init(getContext(this))
-      await storageService.saveApiConfig(this.config)
-      router.replaceUrl({ url: ROUTES.MAIN })
+      // 测试成功：保存到多配置体系（APICONFIGS + APIMODELS + 激活键）并进入主页面
+      const saved = await this.saveToManagedConfigs()
+      if (saved) {
+        router.replaceUrl({ url: ROUTES.MAIN })
+      }
     }
+  }
+
+  /**
+   * 将首次配置写入新体系：APICONFIGS 行 + APIMODELS 模型条目 + 激活键
+   * 同时镜像一份到 SETTINGS 单配置（兼容旧读取路径）
+   */
+  private async saveToManagedConfigs(): Promise<boolean> {
+    const normalizedUrl: string = normalizeBaseUrl(this.customBaseUrlInput)
+    const platform: string = detectPlatform(normalizedUrl)
+    const cfgId: string = platform + '_' + Date.now().toString()
+
+    const entries: ApiModelEntry[] = []
+    for (let i = 0; i < this.modelRows.length; i++) {
+      const modelId: string = this.modelRows[i].modelId.trim()
+      if (modelId.length === 0) continue
+      entries.push(buildModelEntry('', cfgId, modelId, this.modelRows[i].displayName.trim(), i))
+    }
+    if (entries.length === 0) {
+      promptAction.showToast({ message: '请至少填写一个模型名', duration: 1500 })
+      return false
+    }
+
+    const managed: ManagedApiConfig = {
+      id: cfgId,
+      name: platform === 'deepseek' ? 'DeepSeek' : platform === 'openai' ? 'OpenAI' : '自定义',
+      platform: platform,
+      baseUrl: normalizedUrl,
+      apiKey: this.config.apiKey,
+      createdAt: Date.now()
+    }
+    const existing = await storageService.loadApiConfigs()
+    await storageService.saveApiConfigs([...existing, managed])
+    await storageService.saveApiModelsForConfig(cfgId, entries)
+    await storageService.setActiveConfigId(cfgId)
+    await storageService.setActiveModelEntryId(entries[0].id)
+
+    // 镜像 SETTINGS 单配置（兼容旧链路读取）
+    this.config.customBaseUrl = normalizedUrl
+    this.config.customModel = entries[0].modelId
+    this.config.isConfigured = true
+    await storageService.saveApiConfig(this.config)
+    return true
   }
 }

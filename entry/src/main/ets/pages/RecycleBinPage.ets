@@ -14,12 +14,16 @@ import { LucideIcon, LucideIcons } from '../components/LucideIcon'
 
 const DOMAIN = 0x0008
 const TAG = 'RecycleBinPage'
+// 列表边缘渐隐带占列表高度的比例，可按真机效果调整
+const LIST_FADE_RATIO = 0.05
 
 @Entry
 @Component
 struct RecycleBinPage {
   @State conversations: Conversation[] = []
   @State loading: boolean = true
+  @State showTopFade: boolean = false
+  @State showBottomFade: boolean = false
   @StorageLink('themeColor') themeColor: string = '#007DFF'
   @StorageLink('currentColorMode') currentColorMode: number = 0
 
@@ -161,11 +165,50 @@ struct RecycleBinPage {
         .divider({ strokeWidth: 0.5, color: this.currentColorMode === 1 ? '#E8E8E8' : '#444444' })
         .backgroundColor(Color.Transparent)
         .scrollBar(BarState.Auto)
+        .onScrollIndex((start: number, end: number) => {
+          // 末位是 88vp 底部占位项：end 未到占位项索引，说明底边仍有卡片被裁剪
+          this.showTopFade = start > 0
+          this.showBottomFade = end < this.conversations.length
+        })
+        // 官方配方：渐隐 overlay 必须直接挂在 List 上（挂包裹容器上混合不到列表内容）
+        .overlay(this.EdgeFadeMask())
       }
     }
     .width('100%').height('100%')
     .backgroundColor(this.currentColorMode === 1 ? '#F2F2F2' : '#121212')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+  }
+
+  /**
+   * 列表边缘渐隐遮罩（官方《常见列表操作》边缘模糊配方）：
+   * overlay 直接挂在 List 上，全尺寸 Stack + linearGradient + BlendMode.DST_IN(OFFSCREEN)，
+   * 遮罩透明处列表内容被抠除（渐隐）；色标由滚动位置动态驱动，无溢出的一侧为不透明停靠点
+   */
+  @Builder
+  EdgeFadeMask() {
+    Stack()
+      .width('100%')
+      .height('100%')
+      .linearGradient({
+        direction: GradientDirection.Bottom,
+        colors: this.edgeFadeColors()
+      })
+      .blendMode(BlendMode.DST_IN, BlendApplyType.OFFSCREEN)
+      .hitTestBehavior(HitTestMode.None)
+  }
+
+  /**
+   * 遮罩色标：某侧有内容溢出视口时该侧边缘停靠点透明（出现渐隐带），否则不透明（恒等遮罩）
+   */
+  private edgeFadeColors(): Array<[ResourceColor, number]> {
+    const topAlpha: number = this.showTopFade ? 0x00FFFFFF : 0xFFFFFFFF
+    const bottomAlpha: number = this.showBottomFade ? 0x00FFFFFF : 0xFFFFFFFF
+    return [
+      [topAlpha, 0.0],
+      [0xFFFFFFFF, LIST_FADE_RATIO],
+      [0xFFFFFFFF, 1 - LIST_FADE_RATIO],
+      [bottomAlpha, 1.0]
+    ]
   }
 
   @Builder

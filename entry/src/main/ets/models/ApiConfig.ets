@@ -166,3 +166,99 @@ export interface ManagedApiConfig {
   /** 创建时间戳 */
   createdAt: number
 }
+
+/**
+ * 模型条目：一个 API 配置（key）下的一个可用模型
+ * 存储于 APIMODELS 表（端云同步），与 APICONFIGS 通过 configId 关联
+ */
+export interface ApiModelEntry {
+  /** 条目唯一 ID */
+  id: string
+  /** 所属 API 配置 ID → APICONFIGS.id */
+  configId: string
+  /** OpenAI 格式模型名（请求体 model 参数） */
+  modelId: string
+  /** 缩略显示名（对话页 Select 收起时显示），空则回退 modelId */
+  displayName: string
+  /** 展示顺序（Select 展开按此排序） */
+  sortOrder: number
+  /** 创建时间戳 */
+  createdAt: number
+}
+
+/**
+ * 单次聊天请求的连接上下文（ApiService 请求参数化，
+ * 由「激活配置 + 激活模型 + 对话页参数」组装）
+ */
+export interface ChatEndpoint {
+  baseUrl: string
+  apiKey: string
+  modelId: string
+  temperature: number
+  maxTokens: number
+  topP: number
+}
+
+/** 激活配置上下文（ChatPage 加载结果） */
+export interface ActiveApiContext {
+  config: ManagedApiConfig | null
+  models: ApiModelEntry[]
+  activeModel: ApiModelEntry | null
+}
+
+/**
+ * 构造模型条目（id 为空时自动生成）
+ */
+export function buildModelEntry(id: string, configId: string, modelId: string,
+  displayName: string, sortOrder: number): ApiModelEntry {
+  return {
+    id: id.length > 0 ? id : configId + '_' + Date.now().toString() + '_' + sortOrder.toString(),
+    configId: configId,
+    modelId: modelId,
+    displayName: displayName,
+    sortOrder: sortOrder,
+    createdAt: Date.now()
+  }
+}
+
+/**
+ * 显示名回退：未配置显示名时显示模型名
+ */
+export function resolveDisplayName(entry: ApiModelEntry): string {
+  return entry.displayName.length > 0 ? entry.displayName : entry.modelId
+}
+
+/**
+ * 归一化 BaseURL：缺少协议前缀时补 https://
+ */
+export function normalizeBaseUrl(url: string): string {
+  let result: string = url.trim()
+  if (result.length === 0) return result
+  if (!result.startsWith('http://') && !result.startsWith('https://')) {
+    result = 'https://' + result
+  }
+  return result
+}
+
+/**
+ * 根据 BaseURL 自动识别平台（deepseek / openai / custom）
+ */
+export function detectPlatform(baseUrl: string): string {
+  const lower: string = baseUrl.toLowerCase()
+  if (lower.includes('deepseek')) return 'deepseek'
+  if (lower.includes('openai')) return 'openai'
+  return 'custom'
+}
+
+/**
+ * 由 BaseURL 构建 Chat Completions 完整 URL
+ * 已以 /v1 结尾的地址不再重复追加（兼容 moonshot 等含 /v1 的 baseUrl）
+ */
+export function buildChatUrl(baseUrl: string): string {
+  const base: string = baseUrl.trim().replace(/\/+$/, '')
+  const lower: string = base.toLowerCase()
+  if (lower.endsWith('/v1')) {
+    return base + '/chat/completions'
+  }
+  return base + '/v1/chat/completions'
+}

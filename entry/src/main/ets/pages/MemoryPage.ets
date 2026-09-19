@@ -16,12 +16,16 @@ import { common } from '@kit.AbilityKit'
 
 const DOMAIN = 0x0007
 const TAG = 'MemoryPage'
+// 列表边缘渐隐带占列表高度的比例，可按真机效果调整
+const LIST_FADE_RATIO = 0.05
 
 @Entry
 @Component
 struct MemoryPage {
   @State memories: Memory[] = []
   @State inputText: string = ''
+  @State showTopFade: boolean = false
+  @State showBottomFade: boolean = false
   private memoryDialogController: CustomDialogController | null = null
   @StorageLink('themeColor') themeColor: string = '#007DFF'
   @StorageLink('currentColorMode') currentColorMode: number = 0
@@ -173,9 +177,17 @@ struct MemoryPage {
               })
             })
           }
+          .width('100%')
+          .height('100%')
           .layoutWeight(1)
           .backgroundColor(Color.Transparent)
           .scrollBar(BarState.Auto)
+          .onScrollIndex((start: number, end: number) => {
+            this.showTopFade = start > 0
+            this.showBottomFade = end < this.memories.length - 1
+          })
+          // 官方配方：渐隐 overlay 必须直接挂在 List 上（挂包裹容器上混合不到列表内容）
+          .overlay(this.EdgeFadeMask())
         }
 
         Column().height(80)
@@ -217,6 +229,38 @@ struct MemoryPage {
       })
     }
     .width('100%').height('100%')
+  }
+
+  /**
+   * 列表边缘渐隐遮罩（官方《常见列表操作》边缘模糊配方）：
+   * overlay 直接挂在 List 上，全尺寸 Stack + linearGradient + BlendMode.DST_IN(OFFSCREEN)，
+   * 遮罩透明处列表内容被抠除（渐隐）；色标由滚动位置动态驱动，无溢出的一侧为不透明停靠点
+   */
+  @Builder
+  EdgeFadeMask() {
+    Stack()
+      .width('100%')
+      .height('100%')
+      .linearGradient({
+        direction: GradientDirection.Bottom,
+        colors: this.edgeFadeColors()
+      })
+      .blendMode(BlendMode.DST_IN, BlendApplyType.OFFSCREEN)
+      .hitTestBehavior(HitTestMode.None)
+  }
+
+  /**
+   * 遮罩色标：某侧有内容溢出视口时该侧边缘停靠点透明（出现渐隐带），否则不透明（恒等遮罩）
+   */
+  private edgeFadeColors(): Array<[ResourceColor, number]> {
+    const topAlpha: number = this.showTopFade ? 0x00FFFFFF : 0xFFFFFFFF
+    const bottomAlpha: number = this.showBottomFade ? 0x00FFFFFF : 0xFFFFFFFF
+    return [
+      [topAlpha, 0.0],
+      [0xFFFFFFFF, LIST_FADE_RATIO],
+      [0xFFFFFFFF, 1 - LIST_FADE_RATIO],
+      [bottomAlpha, 1.0]
+    ]
   }
 
   @Builder

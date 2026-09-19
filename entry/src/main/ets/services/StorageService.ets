@@ -11,7 +11,7 @@ import { dbHelper } from './DatabaseHelper'
 import { Conversation } from '../models/Conversation'
 import { Memory } from '../models/Memory'
 import { Message } from '../models/Message'
-import { ApiConfig, ManagedApiConfig, createDefaultApiConfig } from '../models/ApiConfig'
+import { ApiConfig, ManagedApiConfig, ApiModelEntry, ActiveApiContext } from '../models/ApiConfig'
 import { STORAGE_KEYS } from '../common/Constants'
 import { syncService } from './SyncService'
 import { hilog } from '@kit.PerformanceAnalysisKit'
@@ -259,6 +259,9 @@ class StorageService {
         }
         await store.insert('APICONFIGS', vb)
       }
+      // 清理孤儿模型条目（所属配置已被删除）
+      await store.executeSql(
+        'DELETE FROM APIMODELS WHERE config_id NOT IN (SELECT id FROM APICONFIGS)')
       store.commit()
     } catch (err) {
       store.rollBack()
@@ -297,7 +300,150 @@ class StorageService {
     }
   }
 
-  // ════════════ 单 API 配置（兼容旧 Settings 表）════════════
+  // ════════════ 模型条目（APIMODELS 表 - 一配置多模型）════════════
+
+  /**
+   * 重写某配置下的全部模型条目（事务：删旧插新，sortOrder 按数组下标）
+   */
+  async saveApiModelsForConfig(configId: string, entries: ApiModelEntry[]): Promise<void> {
+    const store = this.getStore()
+    if (!store) return
+    store.beginTransaction()
+    try {
+      const pred = new relationalStore.RdbPredicates('APIMODELS')
+      pred.equalTo('config_id', configId)
+      await store.delete(pred)
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i]
+        const vb: relationalStore.ValuesBucket = {
+          'id': e.id,
+          'config_id': e.configId,
+          'model_id': e.modelId,
+          'display_name': e.displayName,
+          'sort_order': i,
+          'created_at': e.createdAt
+        }
+        await store.insert('APIMODELS', vb)
+      }
+      store.commit()
+    } catch (err) {
+      store.rollBack()
+      hilog.error(DOMAIN, TAG, 'saveApiModelsForConfig failed: %{public}s', JSON.stringify(err))
+      return
+    }
+    syncService.pushApiModels().catch((err: Object) => {
+      hilog.error(DOMAIN, TAG, 'Push API models failed: %{public}s', JSON.stringify(err))
+    })
+  }
+
+  /**
+   * 加载某配置下的模型条目（按 sort_order 升序）
+   */
+  async loadApiModels(configId: string): Promise<ApiModelEntry[]> {
+    const store = this.getStore()
+    if (!store) return []
+    try {
+      const pred = new relationalStore.RdbPredicates('APIMODELS')
+      pred.equalTo('config_id', configId)
+      pred.orderByAsc('sort_order')
+      const result = await store.query(pred)
+      const entries: ApiModelEntry[] = []
+      while (result.goToNextRow()) {
+        entries.push({
+          id: result.getString(result.getColumnIndex('id'))!,
+          configId: result.getString(result.getColumnIndex('config_id')) ?? '',
+          modelId: result.getString(result.getColumnIndex('model_id')) ?? '',
+          displayName: result.getString(result.getColumnIndex('display_name')) ?? '',
+          sortOrder: this.safeGetLong(result, 'sort_order', 0),
+          createdAt: this.safeGetLong(result, 'created_at', 0)
+        })
+      }
+      result.close()
+      return entries
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'loadApiModels failed: %{public}s', JSON.stringify(err))
+      return []
+    }
+  }
+
+  /**
+   * 加载全部模型条目（管理页展示用，按 config_id、sort_order 排序）
+   */
+  async loadAllApiModels(): Promise<ApiModelEntry[]> {
+    const store = this.getStore()
+    if (!store) return []
+    try {
+      const pred = new relationalStore.RdbPredicates('APIMODELS')
+      pred.orderByAsc('config_id')
+      pred.orderByAsc('sort_order')
+      const result = await store.query(pred)
+      const entries: ApiModelEntry[] = []
+      while (result.goToNextRow()) {
+        entries.push({
+          id: result.getString(result.getColumnIndex('id'))!,
+          configId: result.getString(result.getColumnIndex('config_id')) ?? '',
+          modelId: result.getString(result.getColumnIndex('model_id')) ?? '',
+          displayName: result.getString(result.getColumnIndex('display_name')) ?? '',
+          sortOrder: this.safeGetLong(result, 'sort_order', 0),
+          createdAt: this.safeGetLong(result, 'created_at', 0)
+        })
+      }
+      result.close()
+      return entries
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'loadAllApiModels failed: %{public}s', JSON.stringify(err))
+      return []
+    }
+  }
+
+  // ════════════ 激活配置 / 激活模型（SETTINGS 键）════════════
+
+  async getActiveConfigId(): Promise<string> {
+    return await this.getString('active_config_id', '')
+  }
+
+  async setActiveConfigId(id: string): Promise<void> {
+    await this.setString('active_config_id', id)
+  }
+
+  async getActiveModelEntryId(): Promise<string> {
+    return await this.getString('active_model_entry_id', '')
+  }
+
+  async setActiveModelEntryId(id: string): Promise<void> {
+    await this.setString('active_model_entry_id', id)
+  }
+
+  /**
+   * 加载激活配置上下文：激活配置 + 其模型列表 + 激活模型
+   * 激活键缺失时回退：最早创建的配置 + 其 sort_order 最小的模型
+   */
+  async loadActiveApiContext(): Promise<ActiveApiContext> {
+    const configs = await this.loadApiConfigs()
+    if (configs.length === 0) {
+      return { config: null, models: [], activeModel: null }
+    }
+    // loadApiConfigs 按 created_at 降序，数组末位即最早创建
+    let config: ManagedApiConfig = configs[configs.length - 1]
+    const wantedConfigId = await this.getActiveConfigId()
+    if (wantedConfigId.length > 0) {
+      const found = configs.find(c => c.id === wantedConfigId)
+      if (found) config = found
+    }
+    const models = await this.loadApiModels(config.id)
+    if (models.length === 0) {
+      return { config: config, models: [], activeModel: null }
+    }
+    let activeModel: ApiModelEntry = models[0]
+    const wantedModelId = await this.getActiveModelEntryId()
+    if (wantedModelId.length > 0) {
+      const found = models.find(m => m.id === wantedModelId)
+      if (found) activeModel = found
+    }
+    return { config: config, models: models, activeModel: activeModel }
+  }
+
+  // ════════════ 单 API 配置（兼容旧 Settings 表，仅保留读取兼容）════════════
 
   async saveApiConfig(config: ApiConfig): Promise<void> {
     const store = this.getStore()

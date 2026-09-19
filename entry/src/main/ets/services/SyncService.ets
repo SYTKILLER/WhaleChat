@@ -79,6 +79,17 @@ class SyncService {
       relationalStore.SyncMode.SYNC_MODE_TIME_FIRST)
     hilog.info(0x0004, TAG, 'Push API configs to cloud')
   }
+
+  async syncApiModels(_localJson: string): Promise<string> {
+    await this.doSync('APIMODELS')
+    return _localJson
+  }
+
+  async pushApiModels(): Promise<void> {
+    await dbHelper.cloudSync(['APIMODELS'],
+      relationalStore.SyncMode.SYNC_MODE_TIME_FIRST)
+    hilog.info(0x0004, TAG, 'Push API models to cloud')
+  }
 }
 
 export const syncService = SyncService.getInstance()

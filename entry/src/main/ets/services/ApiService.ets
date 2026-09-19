@@ -6,7 +6,7 @@
 
 import { http } from '@kit.NetworkKit'
 import { util } from '@kit.ArkTS'
-import { ApiConfig, getEffectiveModel, getChatCompletionsUrl, getModelsUrl, ManagedApiConfig } from '../models/ApiConfig'
+import { ApiConfig, getEffectiveModel, getChatCompletionsUrl, getModelsUrl, ManagedApiConfig, ChatEndpoint, buildChatUrl } from '../models/ApiConfig'
 import { Message } from '../models/Message'
 import { Memory, formatMemoriesAsPrompt } from '../models/Memory'
 import { hilog } from '@kit.PerformanceAnalysisKit'
@@ -162,7 +162,7 @@ class ApiService {
    * 发送非流式聊天请求
    */
   async chat(
-    config: ApiConfig,
+    endpoint: ChatEndpoint,
     messages: Message[],
     memories: Memory[],
     deepThinking: boolean,
@@ -171,15 +171,15 @@ class ApiService {
     onDone: (result: ChatResult) => void,
     onError: (error: string) => void
   ): Promise<void> {
-    const requestBody: ChatRequestBody = this.buildRequestBody(config, messages, memories, false, deepThinking, customPrompt)
-    const url: string = getChatCompletionsUrl(config)
+    const requestBody: ChatRequestBody = this.buildRequestBody(endpoint, messages, memories, false, deepThinking, customPrompt)
+    const url: string = buildChatUrl(endpoint.baseUrl)
 
     try {
       const httpRequest = http.createHttp()
       const bodyStr: string = JSON.stringify(requestBody)
       hilog.info(DOMAIN, TAG, 'Chat POST url: %{public}s', url)
       hilog.info(DOMAIN, TAG, 'Chat body length: %{public}d, key length: %{public}d',
-        bodyStr.length, config.apiKey.length)
+        bodyStr.length, endpoint.apiKey.length)
       // 输出 body 前 200 字符用于调试
       hilog.info(DOMAIN, TAG, 'Chat body preview: %{public}s',
         bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr)
@@ -188,7 +188,7 @@ class ApiService {
         method: http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + config.apiKey,
+          'Authorization': 'Bearer ' + endpoint.apiKey,
           'User-Agent': 'WhaleChat-HarmonyOS/1.0'
         },
         extraData: bodyStr,
@@ -227,15 +227,15 @@ class ApiService {
    * ⚠️ 关键：必须先注册事件再调用 requestInStream，否则数据事件全部丢失。
    */
   async chatStream(
-    config: ApiConfig,
+    endpoint: ChatEndpoint,
     messages: Message[],
     memories: Memory[],
     deepThinking: boolean,
     customPrompt: string,
     callbacks: StreamCallbacks
   ): Promise<void> {
-    const requestBody: ChatRequestBody = this.buildRequestBody(config, messages, memories, true, deepThinking, customPrompt)
-    const url: string = getChatCompletionsUrl(config)
+    const requestBody: ChatRequestBody = this.buildRequestBody(endpoint, messages, memories, true, deepThinking, customPrompt)
+    const url: string = buildChatUrl(endpoint.baseUrl)
 
     this.stats.requestCount++
 
@@ -356,7 +356,7 @@ class ApiService {
         method: http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + config.apiKey,
+          'Authorization': 'Bearer ' + endpoint.apiKey,
           'Accept': 'text/event-stream',
           'User-Agent': 'WhaleChat-HarmonyOS/1.0'
         },
@@ -416,7 +416,7 @@ class ApiService {
    * 构建请求体
    */
   private buildRequestBody(
-    config: ApiConfig,
+    endpoint: ChatEndpoint,
     messages: Message[],
     memories: Memory[],
     stream: boolean,
@@ -447,10 +447,8 @@ class ApiService {
       apiMessages.push(apiMsg)
     }
 
-    const model: string = getEffectiveModel(config)
-
     const body: ChatRequestBody = {
-      model: model,
+      model: endpoint.modelId,
       messages: apiMessages,
       stream: stream
     }
@@ -462,9 +460,9 @@ class ApiService {
     } else {
       // 普通模式：显式关闭思考（API 默认为 enabled），发送温度和采样参数
       body.thinking = { type: 'disabled' }
-      body.temperature = config.temperature
-      body.top_p = config.topP
-      body.max_tokens = config.maxTokens
+      body.temperature = endpoint.temperature
+      body.top_p = endpoint.topP
+      body.max_tokens = endpoint.maxTokens
     }
 
     return body

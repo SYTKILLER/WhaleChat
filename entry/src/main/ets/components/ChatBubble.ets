@@ -15,6 +15,8 @@ import { shareConversation } from '../utils/ExportHelper'
 @Component
 export struct ChatBubble {
   @Prop @Watch("onMessageChange") message: Message
+  /** 是否播放入场转场（历史消息加载时由父组件传 false） */
+  @Prop animateAppear: boolean = true
   @State showTime: boolean = false
   @State localShowThinking: boolean = false
   @State streamingCompleted: string = ''
@@ -234,6 +236,14 @@ export struct ChatBubble {
       }
     }
     .width('100%')
+    .transition(this.animateAppear ?
+      TransitionEffect.asymmetric(
+        TransitionEffect.OPACITY
+          .combine(TransitionEffect.scale({ x: 0.96, y: 0.96 }))
+          .animation({ duration: 250, curve: Curve.EaseOut }),
+        TransitionEffect.OPACITY
+      ) :
+      TransitionEffect.IDENTITY)
   }
 
   private copyAIContent(): void {

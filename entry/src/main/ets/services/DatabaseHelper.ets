@@ -55,14 +55,15 @@ const DB_CONFIG: relationalStore.StoreConfig = {
 /** 数据库版本键（用于检测是否需要重建） */
 const DB_VERSION_KEY = 'db_schema_version'
 /** 当前数据库 schema 版本 */
-const CURRENT_DB_VERSION = 3
+const CURRENT_DB_VERSION = 4
 
 /** 端云同步的分布式表名（与 AGC 云类型名称一致） */
 export const CLOUD_TABLES: string[] = [
   'CONVERSATIONS',
   'MEMORIES',
   'SETTINGS',
-  'APICONFIGS'
+  'APICONFIGS',
+  'APIMODELS'
 ]
 
 // ── DDL ──
@@ -111,6 +112,18 @@ const SQL_API_CONFIGS: string = `
     base_url   TEXT,
     api_key    TEXT,
     created_at INTEGER
+  )
+`
+
+/** 模型条目表：一个 API 配置（key）下的多个可用模型（云端对象类型 APIMODELS 已同步建立） */
+const SQL_API_MODELS: string = `
+  CREATE TABLE IF NOT EXISTS APIMODELS (
+    id           TEXT PRIMARY KEY,
+    config_id    TEXT,
+    model_id     TEXT,
+    display_name TEXT,
+    sort_order   INTEGER,
+    created_at   INTEGER
   )
 `
 
@@ -172,6 +185,7 @@ class DatabaseHelper {
       await this.rdb.executeSql(SQL_MEMORIES)
       await this.rdb.executeSql(SQL_SETTINGS)
       await this.rdb.executeSql(SQL_API_CONFIGS)
+      await this.rdb.executeSql(SQL_API_MODELS)
       await this.rdb.executeSql(SQL_MIGRATION)
 
       // 增量迁移：按版本号补齐缺失列（绝不删库重建，避免数据丢失）
@@ -246,9 +260,65 @@ class DatabaseHelper {
       }
     }
 
-    // （预留）v2 → v3：暂无新列
+    // v3 → v4：新增 APIMODELS 表（一配置多模型），并迁移旧单配置的模型名
+    if (version < 4) {
+      try {
+        await this.rdb.executeSql(SQL_API_MODELS)
+        hilog.info(DOMAIN, TAG, 'Migration: ensured APIMODELS table')
+      } catch (_) {
+        // 表已存在，忽略
+      }
+      await this.migrateLegacyModel()
+    }
 
     await this.setVersion()
+  }
+
+  /**
+   * 旧数据迁移：SETTINGS.customModel → APIMODELS 首条条目
+   * 仅当 APIMODELS 为空且旧键有值时执行，挂到最早创建的 API 配置上
+   */
+  private async migrateLegacyModel(): Promise<void> {
+    try {
+      const q = await this.rdb!.query(new relationalStore.RdbPredicates('APIMODELS'))
+      const hasRows: boolean = q.rowCount > 0
+      q.close()
+      if (hasRows) return
+
+      let legacyModel: string = ''
+      const p = new relationalStore.RdbPredicates('SETTINGS')
+      p.equalTo('key', 'customModel')
+      const r = await this.rdb!.query(p)
+      if (r.goToFirstRow()) {
+        legacyModel = r.getString(r.getColumnIndex('value')) ?? ''
+      }
+      r.close()
+      if (legacyModel.length === 0) return
+
+      const cp = new relationalStore.RdbPredicates('APICONFIGS')
+      cp.orderByAsc('created_at')
+      cp.limitAs(1)
+      const cr = await this.rdb!.query(cp)
+      if (cr.goToFirstRow()) {
+        const cfgId: string = cr.getString(cr.getColumnIndex('id')) ?? ''
+        if (cfgId.length > 0) {
+          const vb: relationalStore.ValuesBucket = {
+            'id': cfgId + '_legacy',
+            'config_id': cfgId,
+            'model_id': legacyModel,
+            'display_name': '',
+            'sort_order': 0,
+            'created_at': Date.now()
+          }
+          await this.rdb!.insert('APIMODELS', vb)
+          hilog.info(DOMAIN, TAG, 'Migration: legacy model "%{public}s" attached to config %{public}s',
+            legacyModel, cfgId)
+        }
+      }
+      cr.close()
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'Migration legacy model failed: %{public}s', JSON.stringify(err))
+    }
   }
 
   /**
